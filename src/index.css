@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-display: "Barlow Condensed", "Noto Sans SC", sans-serif;
+  --color-hupu-red: #C60100;
+  --color-hupu-red-dark: #A00100;
+  --color-hupu-gold: #E8940C;
+  --color-hupu-ink: #141518;
+  --color-hupu-muted: #6B7280;
+  --color-hupu-canvas: #F4F5F7;
+}
+
+@layer base {
+  html,
+  body {
+    font-family: var(--font-sans);
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+}
+
+.font-score {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.pb-safe {
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
