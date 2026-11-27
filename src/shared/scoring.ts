@@ -49,14 +49,33 @@ export function normalizeAvatarBg(color?: string): string | undefined {
 
 export function validateProfileUpdateInput(
   input: {
+    nickname?: string;
     account?: string;
     password?: string;
     jerseyNumber?: string;
     avatarBg?: string;
   },
-  existingUsers: Pick<PublicPlayer, 'id' | 'account'>[],
+  existingUsers: (Pick<PublicPlayer, 'id' | 'account'> & { nickname?: string })[],
   currentUserId: string,
 ): { valid: boolean; error?: string } {
+  if (input.nickname !== undefined) {
+    const cleanNick = input.nickname.trim().replace(/\s+/g, ' ');
+    if (cleanNick.length < 1 || cleanNick.length > 16) {
+      return { valid: false, error: '昵称需为 1-16 个字符' };
+    }
+    const normalizedNick = normalizeNickname(cleanNick);
+    if (
+      existingUsers.some(
+        (u) =>
+          u.id !== currentUserId &&
+          typeof u.nickname === 'string' &&
+          normalizeNickname(u.nickname) === normalizedNick,
+      )
+    ) {
+      return { valid: false, error: '该昵称已被其他球手占用，请换一个球场外号' };
+    }
+  }
+
   if (input.account !== undefined) {
     const cleanAccount = input.account.trim();
     if (!/^[A-Za-z0-9_]{2,20}$/.test(cleanAccount)) {
@@ -395,6 +414,52 @@ export function removeMemberFromRoom(room: MatchRoom, userId: string): MatchRoom
   };
 }
 
+export interface LeaveRoomTransferResult {
+  room: MatchRoom | null;
+  dissolved: boolean;
+  newCreator?: { userId: string; nickname: string };
+}
+
+export function leaveRoomWithHostTransfer(
+  room: MatchRoom,
+  userId: string,
+): LeaveRoomTransferResult {
+  const nextRoom = removeMemberFromRoom(room, userId);
+  const remaining: RoomSlotMember[] = [
+    ...nextRoom.redTeam.filter((s): s is RoomSlotMember => s !== null),
+    ...nextRoom.blueTeam.filter((s): s is RoomSlotMember => s !== null),
+    ...nextRoom.bench,
+  ];
+
+  if (remaining.length === 0) {
+    return { room: null, dissolved: true };
+  }
+
+  if (nextRoom.creatorId === userId) {
+    const ordered = [...remaining].sort((a, b) => {
+      const ta = Date.parse(a.joinedAt);
+      const tb = Date.parse(b.joinedAt);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) {
+        return ta - tb;
+      }
+      return 0;
+    });
+    const nextHost = ordered[0];
+    const updated: MatchRoom = {
+      ...nextRoom,
+      creatorId: nextHost.userId,
+      creatorNickname: nextHost.nickname,
+    };
+    return {
+      room: updated,
+      dissolved: false,
+      newCreator: { userId: nextHost.userId, nickname: nextHost.nickname },
+    };
+  }
+
+  return { room: nextRoom, dissolved: false };
+}
+
 export function getMemberRoomTeam(room: MatchRoom, userId: string): RoomTeamSlot | null {
   if (room.redTeam.some((s) => s?.userId === userId)) return 'red';
   if (room.blueTeam.some((s) => s?.userId === userId)) return 'blue';
@@ -710,4 +775,81 @@ export function pruneAndCountOnlinePresence(
     }
   }
   return activeEntries.size;
+}
+
+export function getDefaultRoomScheduledAt(now: Date = new Date()): Date {
+  const todayKey = getShanghaiDateKey(now);
+  const today1730Ms = Date.parse(`${todayKey}T17:30:00+08:00`);
+  if (now.getTime() >= today1730Ms) {
+    return new Date(today1730Ms + 24 * 60 * 60 * 1000);
+  }
+  return new Date(today1730Ms);
+}
+
+export function formatRoomScheduleLabel(iso?: string, now: Date = new Date()): string {
+  if (!iso) return '即将开打';
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return '即将开打';
+  const target = new Date(ts);
+  const todayKey = getShanghaiDateKey(now);
+  const tomorrowKey = getShanghaiDateKey(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+  const targetKey = getShanghaiDateKey(target);
+
+  const timeStr = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(target);
+
+  if (targetKey === todayKey) return `今天 ${timeStr}`;
+  if (targetKey === tomorrowKey) return `明天 ${timeStr}`;
+
+  const mdStr = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: 'numeric',
+    day: 'numeric',
+  }).format(target);
+  return `${mdStr} ${timeStr}`;
+}
+
+const INVITE_TEAM_LABEL: Record<RoomTeamSlot, string> = {
+  red: '红队',
+  blue: '蓝队',
+  bench: '替补席',
+};
+
+export function formatRoomInviteShareText(
+  room: MatchRoom,
+  url: string,
+  options: {
+    team: RoomTeamSlot;
+    inviteeNickname?: string;
+    inviterNickname?: string;
+    now?: Date;
+  },
+): string {
+  const cfg = ROOM_MODE_CONFIGS[room.mode];
+  const teamLabel = INVITE_TEAM_LABEL[options.team];
+  const scheduleText = formatRoomScheduleLabel(room.scheduledAt, options.now);
+  const filledStarters =
+    room.redTeam.filter(Boolean).length + room.blueTeam.filter(Boolean).length;
+  const totalStarters = room.teamSize * 2;
+  const benchText =
+    room.benchLimit > 0 ? ` · 替补 ${room.bench.length}/${room.benchLimit}` : '';
+
+  const inviteLine = options.inviteeNickname
+    ? `${options.inviterNickname ? `${options.inviterNickname} ` : ''}邀你（@${options.inviteeNickname}）加入【${teamLabel}】`
+    : `${options.inviterNickname ? `${options.inviterNickname} ` : ''}邀你加入【${teamLabel}】`;
+
+  return [
+    '🏀【园区虎扑约球邀请】',
+    `球局：${room.title}（${cfg.label}）`,
+    `时间：${scheduleText} 开打`,
+    `场地：${room.courtNote || '园区篮球场'}`,
+    `人数：主力 ${filledStarters}/${totalStarters}${benchText}（房主：${room.creatorNickname}）`,
+    `位置：${inviteLine}`,
+    `👉 点击链接一键占座：`,
+    url,
+  ].join('\n');
 }

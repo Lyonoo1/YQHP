@@ -10,14 +10,15 @@ import {
   computePlayerSummary,
   createEmptyRoomSlots,
   formatJerseyNumber,
+  getDefaultRoomScheduledAt,
   getMsUntilShanghaiMidnight,
   getShanghaiDateKey,
   joinRoomSlot,
+  leaveRoomWithHostTransfer,
   normalizeAccount,
   normalizeAvatarBg,
   pruneAndCountOnlinePresence,
   pruneExpiredRooms,
-  removeMemberFromRoom,
   removeRoomInvite,
   shouldAutoStartRoom,
   shouldResetDailyData,
@@ -622,6 +623,7 @@ class ParkHupuStore {
   public updateProfile(
     user: PublicPlayer,
     input: {
+      nickname?: string;
       account?: string;
       password?: string;
       jerseyNumber?: string;
@@ -639,6 +641,9 @@ class ParkHupuStore {
       return { ok: false, error: check.error ?? '资料格式有误' };
     }
 
+    if (input.nickname !== undefined) {
+      stored.nickname = input.nickname.trim().replace(/\s+/g, ' ');
+    }
     if (input.account !== undefined) {
       stored.account = normalizeAccount(input.account);
     }
@@ -654,28 +659,53 @@ class ParkHupuStore {
       stored.avatarBg = input.avatarBg.trim() === '' ? undefined : normalizeAvatarBg(input.avatarBg);
     }
 
-    // Sync jerseyNumber and avatarBg inside active rooms
+    // Sync nickname inside comments and replies
+    for (const comment of this.db.comments) {
+      if (comment.authorId === stored.id) {
+        comment.authorNickname = stored.nickname;
+      }
+      for (const reply of comment.replies) {
+        if (reply.authorId === stored.id) {
+          reply.authorNickname = stored.nickname;
+        }
+        if (reply.replyToUserId === stored.id) {
+          reply.replyToNickname = stored.nickname;
+        }
+      }
+    }
+
+    // Sync nickname, jerseyNumber, and avatarBg inside active rooms
     for (const room of this.db.rooms) {
+      if (room.creatorId === stored.id) {
+        room.creatorNickname = stored.nickname;
+      }
       for (const slot of room.redTeam) {
         if (slot && slot.userId === stored.id) {
+          slot.nickname = stored.nickname;
           slot.jerseyNumber = stored.jerseyNumber;
           slot.avatarBg = stored.avatarBg;
         }
       }
       for (const slot of room.blueTeam) {
         if (slot && slot.userId === stored.id) {
+          slot.nickname = stored.nickname;
           slot.jerseyNumber = stored.jerseyNumber;
           slot.avatarBg = stored.avatarBg;
         }
       }
       for (const sub of room.bench) {
         if (sub.userId === stored.id) {
+          sub.nickname = stored.nickname;
           sub.jerseyNumber = stored.jerseyNumber;
           sub.avatarBg = stored.avatarBg;
         }
       }
       for (const inv of room.invites ?? []) {
+        if (inv.inviterId === stored.id) {
+          inv.inviterNickname = stored.nickname;
+        }
         if (inv.inviteeId === stored.id) {
+          inv.inviteeNickname = stored.nickname;
           inv.inviteeJerseyNumber = stored.jerseyNumber;
         }
       }
@@ -991,7 +1021,7 @@ class ParkHupuStore {
         : 4
       : 0;
 
-    let scheduledIso = new Date(Date.now() + 30 * 60_000).toISOString();
+    let scheduledIso = getDefaultRoomScheduledAt().toISOString();
     if (input.scheduledAt && input.scheduledAt.trim()) {
       const parsedMs = Date.parse(input.scheduledAt);
       if (!Number.isFinite(parsedMs)) {
@@ -1083,16 +1113,101 @@ class ParkHupuStore {
   public leaveRoom(
     user: PublicPlayer,
     roomId: string,
-  ): { ok: true; room: MatchRoom } | { ok: false; error: string } {
+  ):
+    | {
+        ok: true;
+        dissolved: boolean;
+        room?: MatchRoom;
+        newCreator?: { userId: string; nickname: string };
+      }
+    | { ok: false; error: string } {
     this.ensureDailyFreshness();
     const idx = this.db.rooms.findIndex((r) => r.id === roomId);
     if (idx === -1) {
       return { ok: false, error: '房间不存在或已解散' };
     }
 
-    this.db.rooms[idx] = removeMemberFromRoom(this.db.rooms[idx], user.id);
+    const result = leaveRoomWithHostTransfer(this.db.rooms[idx], user.id);
+    if (result.dissolved || !result.room) {
+      this.db.rooms.splice(idx, 1);
+      this.saveToDisk();
+      return { ok: true, dissolved: true };
+    }
+
+    this.db.rooms[idx] = result.room;
     this.saveToDisk();
-    return { ok: true, room: this.db.rooms[idx] };
+    return {
+      ok: true,
+      dissolved: false,
+      room: result.room,
+      newCreator: result.newCreator,
+    };
+  }
+
+  public updateRoom(
+    user: PublicPlayer,
+    roomId: string,
+    input: {
+      title?: string;
+      courtNote?: string;
+      scheduledAt?: string;
+      benchLimit?: number;
+    },
+  ): { ok: true; room: MatchRoom } | { ok: false; error: string } {
+    this.ensureDailyFreshness();
+    const room = this.db.rooms.find((r) => r.id === roomId);
+    if (!room) {
+      return { ok: false, error: '房间不存在或已解散' };
+    }
+    if (room.creatorId !== user.id) {
+      return { ok: false, error: '仅房主可编辑房间信息' };
+    }
+
+    if (input.title !== undefined) {
+      const cleanTitle = input.title.trim();
+      if (cleanTitle.length < 1 || cleanTitle.length > 28) {
+        return { ok: false, error: '房间标题需为 1-28 字' };
+      }
+      room.title = cleanTitle;
+    }
+
+    if (input.courtNote !== undefined) {
+      room.courtNote = input.courtNote.trim().slice(0, 32) || '园区篮球场';
+    }
+
+    if (input.scheduledAt !== undefined && input.scheduledAt.trim()) {
+      const parsedMs = Date.parse(input.scheduledAt);
+      if (!Number.isFinite(parsedMs)) {
+        return { ok: false, error: '开打时间格式无效' };
+      }
+      if (parsedMs < Date.now() - 90 * 60_000) {
+        return { ok: false, error: '开打时间不能早于当前太多，请重新选择' };
+      }
+      if (parsedMs > Date.now() + 7 * 24 * 60 * 60_000) {
+        return { ok: false, error: '最多仅支持预约未来 7 天内的约球房间' };
+      }
+      room.scheduledAt = new Date(parsedMs).toISOString();
+      room.status = parsedMs <= Date.now() ? 'playing' : 'recruiting';
+    }
+
+    const cfg = ROOM_MODE_CONFIGS[room.mode];
+    if (cfg?.allowBench && input.benchLimit !== undefined) {
+      const allowedBench = [0, 2, 4, 6];
+      const nextBench = Number(input.benchLimit);
+      if (!allowedBench.includes(nextBench)) {
+        return { ok: false, error: '替补席人数上限无效' };
+      }
+      if (nextBench < room.bench.length) {
+        return {
+          ok: false,
+          error: `当前已有 ${room.bench.length} 名替补，上限不能低于当前人数`,
+        };
+      }
+      room.benchLimit = nextBench;
+    }
+
+    this.saveToDisk();
+    return { ok: true, room };
   }
 
   public updateRoomStatus(

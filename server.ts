@@ -124,8 +124,9 @@ async function startServer() {
   });
 
   router.patch('/api/auth/profile', requireAuth, (req: AuthedRequest, res: Response) => {
-    const { account, password, jerseyNumber, avatarBg } = req.body ?? {};
+    const { nickname, account, password, jerseyNumber, avatarBg } = req.body ?? {};
     const result = store.updateProfile(req.user!, {
+      nickname: typeof nickname === 'string' ? nickname : undefined,
       account: typeof account === 'string' ? account : undefined,
       password: typeof password === 'string' ? password : undefined,
       jerseyNumber: typeof jerseyNumber === 'string' ? jerseyNumber : undefined,
@@ -243,6 +244,22 @@ async function startServer() {
     const result = store.leaveRoom(req.user!, String(req.params.roomId));
     if (!result.ok) {
       res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json(store.getBootstrap(req.user!));
+  });
+
+  router.patch('/api/rooms/:roomId', requireAuth, (req: AuthedRequest, res: Response) => {
+    const { title, courtNote, scheduledAt, benchLimit } = req.body ?? {};
+    const result = store.updateRoom(req.user!, String(req.params.roomId), {
+      title: typeof title === 'string' ? title : undefined,
+      courtNote: typeof courtNote === 'string' ? courtNote : undefined,
+      scheduledAt: typeof scheduledAt === 'string' ? scheduledAt : undefined,
+      benchLimit:
+        benchLimit === undefined || benchLimit === null ? undefined : Number(benchLimit),
+    });
+    if (!result.ok) {
+      res.status(result.error.includes('仅房主') ? 403 : 400).json({ error: result.error });
       return;
     }
     res.json(store.getBootstrap(req.user!));

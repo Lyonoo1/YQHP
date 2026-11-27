@@ -588,5 +588,131 @@ test('pruneAndCountOnlinePresence drops stale clients past TTL and counts active
   assert.equal(entries.has('user:u1'), true);
 });
 
+test('profile update validation supports nickname edits and rejects duplicate nicknames', async () => {
+  const { validateProfileUpdateInput } = await import('./scoring');
+  const existing = [
+    { id: 'u1', account: 'YY01', nickname: '假多夫' },
+    { id: 'u2', account: 'YY08', nickname: '科比' },
+  ];
+
+  const dup = validateProfileUpdateInput({ nickname: ' 科比 ' }, existing, 'u1');
+  assert.equal(dup.valid, false);
+  assert.equal(validateProfileUpdateInput({ nickname: '假多夫' }, existing, 'u1').valid, true);
+  assert.equal(validateProfileUpdateInput({ nickname: '园区曼巴' }, existing, 'u1').valid, true);
+  assert.equal(validateProfileUpdateInput({ nickname: '' }, existing, 'u1').valid, false);
+});
+
+test('getDefaultRoomScheduledAt picks today 17:30 before cutoff and tomorrow 17:30 after cutoff', async () => {
+  const { getDefaultRoomScheduledAt } = await import('./scoring');
+
+  const before = getDefaultRoomScheduledAt(new Date('2026-11-27T14:00:00+08:00'));
+  assert.equal(before.getTime(), Date.parse('2026-11-27T17:30:00+08:00'));
+
+  const exact = getDefaultRoomScheduledAt(new Date('2026-11-27T17:30:00+08:00'));
+  assert.equal(exact.getTime(), Date.parse('2026-11-28T17:30:00+08:00'));
+
+  const after = getDefaultRoomScheduledAt(new Date('2026-11-27T18:10:00+08:00'));
+  assert.equal(after.getTime(), Date.parse('2026-11-28T17:30:00+08:00'));
+});
+
+test('leaveRoomWithHostTransfer passes host to earliest remaining member and dissolves when empty', async () => {
+  const { leaveRoomWithHostTransfer } = await import('./scoring');
+  const slots = createEmptyRoomSlots('half_3v3');
+  slots.redTeam[0] = {
+    userId: 'u1',
+    nickname: '科比',
+    jerseyNumber: '09',
+    joinedAt: '2026-11-27T01:00:00Z',
+  };
+  slots.blueTeam[0] = {
+    userId: 'u2',
+    nickname: '老詹',
+    jerseyNumber: '11',
+    joinedAt: '2026-11-27T01:05:00Z',
+  };
+  slots.redTeam[1] = {
+    userId: 'u3',
+    nickname: '蜘蛛侠',
+    jerseyNumber: '45',
+    joinedAt: '2026-11-27T01:10:00Z',
+  };
+
+  const room: MatchRoom = {
+    id: 'room_transfer',
+    title: '园区测试局',
+    courtNote: '东区1号场',
+    courtType: 'half',
+    mode: 'half_3v3',
+    teamSize: 3,
+    benchLimit: 0,
+    status: 'recruiting',
+    creatorId: 'u1',
+    creatorNickname: '科比',
+    redTeam: slots.redTeam,
+    blueTeam: slots.blueTeam,
+    bench: [],
+    invites: [],
+    createdAt: '2026-11-27T01:00:00Z',
+  };
+
+  const step1 = leaveRoomWithHostTransfer(room, 'u1');
+  assert.equal(step1.dissolved, false);
+  assert.equal(step1.room?.creatorId, 'u2');
+  assert.equal(step1.room?.creatorNickname, '老詹');
+  assert.equal(step1.newCreator?.userId, 'u2');
+
+  const step2 = leaveRoomWithHostTransfer(step1.room!, 'u3');
+  assert.equal(step2.dissolved, false);
+  assert.equal(step2.room?.creatorId, 'u2');
+
+  const step3 = leaveRoomWithHostTransfer(step2.room!, 'u2');
+  assert.equal(step3.dissolved, true);
+  assert.equal(step3.room, null);
+});
+
+test('formatRoomInviteShareText produces Chinese description with match info, time, and URL', async () => {
+  const { formatRoomInviteShareText } = await import('./scoring');
+  const slots = createEmptyRoomSlots('full_5v5');
+  slots.redTeam[0] = {
+    userId: 'u1',
+    nickname: '科比',
+    jerseyNumber: '09',
+    joinedAt: '2026-11-27T05:00:00Z',
+  };
+  const room: MatchRoom = {
+    id: 'room_share',
+    title: '下班全场养生局',
+    courtNote: '东区灯光场',
+    courtType: 'full',
+    mode: 'full_5v5',
+    teamSize: 5,
+    benchLimit: 4,
+    status: 'recruiting',
+    creatorId: 'u1',
+    creatorNickname: '科比',
+    redTeam: slots.redTeam,
+    blueTeam: slots.blueTeam,
+    bench: [],
+    invites: [],
+    scheduledAt: '2026-11-27T17:30:00+08:00',
+    createdAt: '2026-11-27T05:00:00Z',
+  };
+
+  const url = 'http://124.221.147.57/yqhp/?inviteRoom=room_share&team=blue';
+  const text = formatRoomInviteShareText(room, url, {
+    team: 'blue',
+    inviteeNickname: '老詹',
+    inviterNickname: '科比',
+    now: new Date('2026-11-27T14:00:00+08:00'),
+  });
+
+  assert.match(text, /下班全场养生局（全场 5v5）/);
+  assert.match(text, /今天 17:30 开打/);
+  assert.match(text, /东区灯光场/);
+  assert.match(text, /房主：科比/);
+  assert.match(text, /加入【蓝队】/);
+  assert.ok(text.endsWith(url));
+});
+
 
 

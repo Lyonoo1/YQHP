@@ -12,15 +12,19 @@ import {
   Mail,
   Clock,
   Link2,
+  Crown,
+  Pencil,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { copyTextToClipboard, getAppShareBaseUrl } from '../lib/clipboard';
 import {
   buildRoomInviteLink,
+  formatRoomInviteShareText,
+  formatRoomScheduleLabel,
+  getDefaultRoomScheduledAt,
   getRoomDisplayState,
   getRoomMinutesUntilExpiry,
   getRoomStartTimestampMs,
-  getShanghaiDateKey,
   ROOM_MODE_CONFIGS,
 } from '../shared/scoring';
 import type {
@@ -61,38 +65,11 @@ function toLocalDateTimeInputValue(date: Date): string {
 }
 
 function getDefaultScheduleInput(): string {
-  const base = new Date(Date.now() + 60 * 60 * 1000);
-  const mins = Math.ceil(base.getMinutes() / 15) * 15;
-  base.setMinutes(mins, 0, 0);
-  return toLocalDateTimeInputValue(base);
+  return toLocalDateTimeInputValue(getDefaultRoomScheduledAt());
 }
 
 function formatRoomSchedule(iso?: string): string {
-  if (!iso) return '即将开打';
-  const ts = Date.parse(iso);
-  if (!Number.isFinite(ts)) return '即将开打';
-  const target = new Date(ts);
-  const now = new Date();
-  const todayKey = getShanghaiDateKey(now);
-  const tomorrowKey = getShanghaiDateKey(new Date(now.getTime() + 24 * 60 * 60 * 1000));
-  const targetKey = getShanghaiDateKey(target);
-
-  const timeStr = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(target);
-
-  if (targetKey === todayKey) return `今天 ${timeStr}`;
-  if (targetKey === tomorrowKey) return `明天 ${timeStr}`;
-
-  const mdStr = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    month: 'numeric',
-    day: 'numeric',
-  }).format(target);
-  return `${mdStr} ${timeStr}`;
+  return formatRoomScheduleLabel(iso);
 }
 
 export const RoomsView: React.FC<RoomsViewProps> = ({
@@ -112,6 +89,12 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
   const [scheduledAtInput, setScheduledAtInput] = useState<string>(() =>
     getDefaultScheduleInput(),
   );
+  const [editingRoom, setEditingRoom] = useState<MatchRoom | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editCourtNote, setEditCourtNote] = useState('');
+  const [editScheduledAt, setEditScheduledAt] = useState('');
+  const [editBenchLimit, setEditBenchLimit] = useState<number>(0);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [now, setNow] = useState<Date>(() => new Date());
@@ -120,6 +103,45 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
     roomId: string;
     team: RoomTeamSlot;
   } | null>(null);
+
+  const openEditModal = (room: MatchRoom) => {
+    setEditingRoom(room);
+    setEditTitle(room.title);
+    setEditCourtNote(room.courtNote);
+    const parsedMs = room.scheduledAt ? Date.parse(room.scheduledAt) : Number.NaN;
+    setEditScheduledAt(
+      Number.isFinite(parsedMs)
+        ? toLocalDateTimeInputValue(new Date(parsedMs))
+        : getDefaultScheduleInput(),
+    );
+    setEditBenchLimit(room.benchLimit);
+  };
+
+  const handleUpdateRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRoom || !currentUser) return;
+    setSavingEdit(true);
+    try {
+      const parsedDate = editScheduledAt ? new Date(editScheduledAt) : null;
+      const scheduledAt =
+        parsedDate && Number.isFinite(parsedDate.getTime())
+          ? parsedDate.toISOString()
+          : undefined;
+      const next = await api.updateRoom(editingRoom.id, {
+        title: editTitle.trim(),
+        courtNote: editCourtNote.trim(),
+        scheduledAt,
+        benchLimit: ROOM_MODE_CONFIGS[editingRoom.mode].allowBench ? editBenchLimit : undefined,
+      });
+      onDataUpdate(next);
+      setEditingRoom(null);
+      onToast('房间信息已更新');
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : '保存失败，请重试');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -235,11 +257,20 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
       onRequireAuth();
       return;
     }
+    const prevRoom = rooms.find((r) => r.id === roomId);
+    const wasCreator = prevRoom?.creatorId === currentUser.id;
     setBusyRoomId(roomId);
     try {
       const next = await api.leaveRoom(roomId);
       onDataUpdate(next);
-      onToast('已退出该房间位置');
+      const updatedRoom = next.rooms.find((r) => r.id === roomId);
+      if (!updatedRoom) {
+        onToast('房间已无其他球手，已自动解散');
+      } else if (wasCreator && updatedRoom.creatorId !== currentUser.id) {
+        onToast(`已退出房间，房主已移交给 ${updatedRoom.creatorNickname}`);
+      } else {
+        onToast('已退出该房间位置');
+      }
     } catch (err) {
       onToast(err instanceof Error ? err.message : '退出失败');
     } finally {
@@ -340,11 +371,16 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
       inviteId: inv.id,
       inviteeAccount: invitee?.account,
     });
-    const ok = await copyTextToClipboard(url);
+    const shareText = formatRoomInviteShareText(room, url, {
+      team: inv.targetTeam,
+      inviteeNickname: inv.inviteeNickname,
+      inviterNickname: currentUser?.nickname ?? inv.inviterNickname,
+    });
+    const ok = await copyTextToClipboard(shareText);
     onToast(
       ok
-        ? `已复制给 ${inv.inviteeNickname} 的专属邀请链接`
-        : '链接已生成，请手动复制',
+        ? `已复制给 ${inv.inviteeNickname} 的邀请文案与链接`
+        : '邀请文案已生成，请手动复制',
     );
   };
 
@@ -491,6 +527,18 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                       <h2 className="text-[15px] font-bold text-[#141518] truncate">
                         {room.title}
                       </h2>
+                      {isCreator && (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => openEditModal(room)}
+                          aria-label={`编辑房间 ${room.title}`}
+                          className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md border border-[#E6E8EC] bg-[#FAFBFD] hover:border-[#C60100] hover:text-[#C60100] text-[11px] font-medium text-[#4B5563] shrink-0 transition-colors"
+                        >
+                          <Pencil className="w-3 h-3" aria-hidden="true" />
+                          <span>编辑</span>
+                        </button>
+                      )}
                     </div>
                     <p className="text-xs text-[#6B7280] mt-0.5 tabular-nums truncate">
                       {cfg.label}
@@ -545,6 +593,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                       </div>
                       {room.redTeam.map((member, slotIdx) => {
                         const isMe = member?.userId === currentUser?.id;
+                        const isRoomHost = member?.userId === room.creatorId;
                         if (member) {
                           return (
                             <div
@@ -560,15 +609,19 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                                 size="sm"
                               />
                               <div className="min-w-0 flex-1">
-                                <p className="text-xs font-semibold text-[#141518] truncate">
-                                  {member.nickname}
-                                </p>
+                                <div className="flex items-center gap-1 min-w-0">
+                                  <p className="text-xs font-semibold text-[#141518] truncate">
+                                    {member.nickname}
+                                  </p>
+                                  {isRoomHost && (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-[#FFF7ED] border border-[#FDBA74] text-[#C2410C] text-[10px] font-bold leading-none shrink-0">
+                                      <Crown className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />
+                                      房主
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-[10px] text-[#9CA3AF]">
-                                  {member.userId === room.creatorId
-                                    ? '房主'
-                                    : isMe
-                                      ? '我'
-                                      : `${slotIdx + 1}号位`}
+                                  {isMe ? '我' : `${slotIdx + 1}号位`}
                                 </p>
                               </div>
                             </div>
@@ -611,6 +664,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                       </div>
                       {room.blueTeam.map((member, slotIdx) => {
                         const isMe = member?.userId === currentUser?.id;
+                        const isRoomHost = member?.userId === room.creatorId;
                         if (member) {
                           return (
                             <div
@@ -626,15 +680,19 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                                 size="sm"
                               />
                               <div className="min-w-0 flex-1">
-                                <p className="text-xs font-semibold text-[#141518] truncate">
-                                  {member.nickname}
-                                </p>
+                                <div className="flex items-center gap-1 min-w-0">
+                                  <p className="text-xs font-semibold text-[#141518] truncate">
+                                    {member.nickname}
+                                  </p>
+                                  {isRoomHost && (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-[#FFF7ED] border border-[#FDBA74] text-[#C2410C] text-[10px] font-bold leading-none shrink-0">
+                                      <Crown className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />
+                                      房主
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-[10px] text-[#9CA3AF]">
-                                  {member.userId === room.creatorId
-                                    ? '房主'
-                                    : isMe
-                                      ? '我'
-                                      : `${slotIdx + 1}号位`}
+                                  {isMe ? '我' : `${slotIdx + 1}号位`}
                                 </p>
                               </div>
                             </div>
@@ -695,22 +753,33 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                         </p>
                       ) : (
                         <div className="grid grid-cols-2 gap-1.5">
-                          {room.bench.map((sub) => (
-                            <div
-                              key={sub.userId}
-                              className="px-2.5 py-1.5 rounded-xl bg-white border border-[#E6E8EC] flex items-center gap-2"
-                            >
-                              <PlayerAvatar
-                                nickname={sub.nickname}
-                                jerseyNumber={sub.jerseyNumber}
-                                avatarBg={sub.avatarBg}
-                                size="sm"
-                              />
-                              <span className="text-xs font-medium text-[#141518] truncate">
-                                {sub.nickname}
-                              </span>
-                            </div>
-                          ))}
+                          {room.bench.map((sub) => {
+                            const isSubHost = sub.userId === room.creatorId;
+                            return (
+                              <div
+                                key={sub.userId}
+                                className="px-2.5 py-1.5 rounded-xl bg-white border border-[#E6E8EC] flex items-center gap-2"
+                              >
+                                <PlayerAvatar
+                                  nickname={sub.nickname}
+                                  jerseyNumber={sub.jerseyNumber}
+                                  avatarBg={sub.avatarBg}
+                                  size="sm"
+                                />
+                                <div className="flex items-center gap-1 min-w-0 flex-1">
+                                  <span className="text-xs font-medium text-[#141518] truncate">
+                                    {sub.nickname}
+                                  </span>
+                                  {isSubHost && (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-[#FFF7ED] border border-[#FDBA74] text-[#C2410C] text-[10px] font-bold leading-none shrink-0">
+                                      <Crown className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />
+                                      房主
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -778,7 +847,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                                     className="px-2 py-1 rounded-md border border-[#C60100]/30 text-[#C60100] text-[11px] font-medium flex items-center gap-0.5"
                                   >
                                     <Link2 className="w-3 h-3" />
-                                    <span>复制链接</span>
+                                    <span>复制邀请</span>
                                   </button>
                                   <button
                                     type="button"
@@ -800,7 +869,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                                   className="px-2 py-1 rounded-md border border-[#E6E8EC] text-[#4B5563] text-[11px] flex items-center gap-0.5 shrink-0"
                                 >
                                   <Link2 className="w-3 h-3" />
-                                  <span>复制链接</span>
+                                  <span>复制邀请</span>
                                 </button>
                               )}
                             </div>
@@ -812,11 +881,7 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                 </div>
 
                 {/* Room Footer Controls */}
-                <div className="px-3.5 py-2.5 bg-white border-t border-[#F0F2F5] flex items-center justify-between gap-2 text-xs">
-                  <span className="text-[#6B7280] truncate">
-                    房主：{room.creatorNickname}
-                  </span>
-
+                <div className="px-3.5 py-2.5 bg-white border-t border-[#F0F2F5] flex items-center justify-end gap-2 text-xs">
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
@@ -1055,6 +1120,129 @@ export const RoomsView: React.FC<RoomsViewProps> = ({
                 className="w-full h-12 rounded-xl bg-[#C60100] hover:bg-[#A00100] text-white text-sm font-semibold disabled:opacity-60"
               >
                 {creating ? '创建中...' : '确认创建并占座红队1号位'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Room Bottom Sheet (Host Only) */}
+      {editingRoom && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/55 backdrop-blur-[2px]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="编辑房间信息"
+        >
+          <div className="w-full max-w-[460px] bg-white rounded-t-3xl sm:rounded-2xl px-5 pt-3 pb-7 shadow-2xl">
+            <div className="w-10 h-1 bg-[#D8DCE2] rounded-full mx-auto mb-3 sm:hidden" />
+
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-bold text-[#141518]">编辑房间信息</h2>
+                <p className="text-xs text-[#6B7280] mt-0.5">
+                  {ROOM_MODE_CONFIGS[editingRoom.mode].label}（赛制不可更改）
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingRoom(null)}
+                aria-label="关闭编辑房间弹窗"
+                className="min-w-[44px] min-h-[44px] -mr-2 flex items-center justify-center text-[#6B7280]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateRoom} className="space-y-4">
+              <div>
+                <label
+                  htmlFor="edit-room-title-input"
+                  className="block text-xs font-semibold text-[#4B5563] mb-1.5"
+                >
+                  房间标题
+                </label>
+                <input
+                  id="edit-room-title-input"
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="输入房间标题（1-28 字）"
+                  maxLength={28}
+                  className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-[#FAFBFD] text-sm text-[#141518] focus:outline-none focus:border-[#C60100] focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="edit-room-schedule-input"
+                  className="block text-xs font-semibold text-[#4B5563] mb-1.5"
+                >
+                  预计开打时间
+                </label>
+                <input
+                  id="edit-room-schedule-input"
+                  type="datetime-local"
+                  required
+                  value={editScheduledAt}
+                  onChange={(e) => setEditScheduledAt(e.target.value)}
+                  className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-[#FAFBFD] text-sm text-[#141518] focus:outline-none focus:border-[#C60100] focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="edit-room-court-input"
+                  className="block text-xs font-semibold text-[#4B5563] mb-1.5"
+                >
+                  场地备注
+                </label>
+                <input
+                  id="edit-room-court-input"
+                  type="text"
+                  value={editCourtNote}
+                  onChange={(e) => setEditCourtNote(e.target.value)}
+                  placeholder="如：东区1号场 / 灯光全开"
+                  maxLength={32}
+                  className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-[#FAFBFD] text-sm text-[#141518] focus:outline-none focus:border-[#C60100] focus:bg-white"
+                />
+              </div>
+
+              {ROOM_MODE_CONFIGS[editingRoom.mode].allowBench && (
+                <div>
+                  <span className="block text-xs font-semibold text-[#4B5563] mb-1.5">
+                    全场 5v5 替补席人数上限
+                  </span>
+                  <div className="grid grid-cols-4 gap-2">
+                    {BENCH_OPTIONS.map((num) => {
+                      const tooSmall = num < editingRoom.bench.length;
+                      return (
+                        <button
+                          key={num}
+                          type="button"
+                          disabled={tooSmall}
+                          onClick={() => setEditBenchLimit(num)}
+                          className={`min-h-[44px] rounded-xl border text-xs font-semibold transition-colors disabled:opacity-40 ${
+                            editBenchLimit === num
+                              ? 'border-[#141518] bg-[#141518] text-white'
+                              : 'border-[#DCE0E6] bg-white text-[#374151]'
+                          }`}
+                        >
+                          {num === 0 ? '无替补' : `${num}替补`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={savingEdit}
+                className="w-full h-12 rounded-xl bg-[#C60100] hover:bg-[#A00100] text-white text-sm font-semibold disabled:opacity-60"
+              >
+                {savingEdit ? '保存中...' : '保存房间修改'}
               </button>
             </form>
           </div>

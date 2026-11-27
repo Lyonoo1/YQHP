@@ -99,6 +99,7 @@ export const api = {
   },
 
   updateProfile(payload: {
+    nickname?: string;
     account?: string;
     password?: string;
     jerseyNumber?: string;
@@ -181,6 +182,21 @@ export const api = {
   leaveRoom(roomId: string): Promise<BootstrapResponse> {
     return request(`/api/rooms/${encodeURIComponent(roomId)}/leave`, {
       method: 'POST',
+    });
+  },
+
+  updateRoom(
+    roomId: string,
+    payload: {
+      title?: string;
+      courtNote?: string;
+      scheduledAt?: string;
+      benchLimit?: number;
+    },
+  ): Promise<BootstrapResponse> {
+    return request(`/api/rooms/${encodeURIComponent(roomId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     });
   },
 

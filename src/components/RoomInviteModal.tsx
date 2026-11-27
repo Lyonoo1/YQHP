@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { copyTextToClipboard, getAppShareBaseUrl } from '../lib/clipboard';
 import {
   buildRoomInviteLink,
+  formatRoomInviteShareText,
   getAvailableSlotsForTeam,
   getMemberRoomTeam,
 } from '../shared/scoring';
@@ -116,12 +117,16 @@ export const RoomInviteModal: React.FC<RoomInviteModalProps> = ({
       roomId: room.id,
       team: targetTeam,
     });
-    const ok = await copyTextToClipboard(url);
+    const shareText = formatRoomInviteShareText(room, url, {
+      team: targetTeam,
+      inviterNickname: currentUser?.nickname,
+    });
+    const ok = await copyTextToClipboard(shareText);
     markCopied('team');
     onToast(
       ok
-        ? `已复制${TEAM_LABELS[targetTeam]}邀请链接，发给球友点击即可入队`
-        : '链接已生成，请手动复制分享给好友',
+        ? `已复制${TEAM_LABELS[targetTeam]}邀请文案与链接，发到微信群即可一键入队`
+        : '邀请文案已生成，请手动复制分享给好友',
     );
   };
 
@@ -150,12 +155,17 @@ export const RoomInviteModal: React.FC<RoomInviteModalProps> = ({
         inviteId,
         inviteeAccount: targetPlayer.account,
       });
+      const shareText = formatRoomInviteShareText(room, url, {
+        team: targetTeam,
+        inviteeNickname: targetPlayer.nickname,
+        inviterNickname: currentUser?.nickname,
+      });
 
-      const ok = await copyTextToClipboard(url);
+      const ok = await copyTextToClipboard(shareText);
       markCopied(targetPlayer.id);
       onToast(
         ok
-          ? `已复制给 ${targetPlayer.nickname} 的专属邀请链接，发给TA点击即可加入${TEAM_LABELS[targetTeam]}`
+          ? `已复制给 ${targetPlayer.nickname} 的邀请文案与链接，发给TA点击即可加入${TEAM_LABELS[targetTeam]}`
           : `已发送邀请给 ${targetPlayer.nickname}`,
       );
     } catch (err) {
@@ -234,12 +244,12 @@ export const RoomInviteModal: React.FC<RoomInviteModalProps> = ({
           {copiedKey === 'team' ? (
             <>
               <Check className="w-4 h-4 shrink-0" />
-              <span>已复制{TEAM_LABELS[targetTeam]}邀请链接，去微信/群里粘贴吧</span>
+              <span>已复制邀请文案与链接，直接去微信粘贴吧</span>
             </>
           ) : (
             <>
               <Link2 className="w-4 h-4 shrink-0" />
-              <span>复制{TEAM_LABELS[targetTeam]}邀请链接（发给球友点击即入队）</span>
+              <span>复制{TEAM_LABELS[targetTeam]}邀请文案（含球局、时间与链接）</span>
             </>
           )}
         </button>

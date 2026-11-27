@@ -20,6 +20,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   onDataUpdate,
   onToast,
 }) => {
+  const [nickname, setNickname] = useState(currentUser.nickname);
   const [account, setAccount] = useState(currentUser.account);
   const [password, setPassword] = useState('');
   const [jerseyNumber, setJerseyNumber] = useState(currentUser.jerseyNumber);
@@ -31,6 +32,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   useEffect(() => {
     if (open) {
+      setNickname(currentUser.nickname);
       setAccount(currentUser.account);
       setPassword('');
       setJerseyNumber(currentUser.jerseyNumber);
@@ -50,6 +52,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     setSaving(true);
     try {
       const next = await api.updateProfile({
+        nickname: nickname.trim(),
         account,
         password: password.trim() ? password : undefined,
         jerseyNumber: formatJerseyNumber(jerseyNumber),
@@ -64,6 +67,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       setSaving(false);
     }
   };
+
+  const previewNickname = nickname.trim() || currentUser.nickname;
 
   return (
     <div
@@ -91,17 +96,17 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
           {/* Live Jersey Avatar Preview */}
           <div className="rounded-2xl bg-[#FAFBFD] border border-[#E6E8EC] p-3.5 flex items-center gap-3.5">
             <PlayerAvatar
-              nickname={currentUser.nickname}
+              nickname={previewNickname}
               jerseyNumber={jerseyNumber.trim() || currentUser.jerseyNumber}
               avatarBg={avatarBg}
               size="lg"
             />
             <div className="min-w-0">
               <p className="text-base font-bold text-[#141518] truncate">
-                {currentUser.nickname}
+                {previewNickname}
               </p>
               <p className="text-xs text-[#6B7280] mt-0.5">
-                头像数字即球衣号码，支持自由切换球衣配色
+                头像数字即球衣号码，支持修改昵称与球衣配色
               </p>
             </div>
           </div>
@@ -115,6 +120,26 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               <span>{error}</span>
             </div>
           )}
+
+          {/* Nickname */}
+          <div>
+            <label
+              htmlFor="edit-nickname"
+              className="block text-xs font-semibold text-[#4B5563] mb-1.5"
+            >
+              球场昵称（1-16 字，不可与他人重复）
+            </label>
+            <input
+              id="edit-nickname"
+              type="text"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              maxLength={16}
+              required
+              placeholder="输入你的球场外号"
+              className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-[#FAFBFD] text-sm text-[#141518] focus:outline-none focus:border-[#C60100] focus:bg-white"
+            />
+          </div>
 
           {/* Jersey Number */}
           <div>
