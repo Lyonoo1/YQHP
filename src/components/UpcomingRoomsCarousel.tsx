@@ -92,19 +92,7 @@ export const UpcomingRoomsCarousel: React.FC<UpcomingRoomsCarouselProps> = ({
   };
 
   if (upcoming.length === 0) {
-    return (
-      <section
-        aria-label="近期比赛预告"
-        className="bg-white rounded-2xl border border-[#E6E8EC] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs text-[#6B7280]"
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <Clock className="w-4 h-4 text-[#9CA3AF] shrink-0" aria-hidden="true" />
-          <span className="font-semibold text-[#374151] shrink-0">近期比赛预告</span>
-          <span aria-hidden="true">·</span>
-          <span className="truncate">未来 2 小时内暂无即将开打房间</span>
-        </div>
-      </section>
-    );
+    return null;
   }
 
   return (
