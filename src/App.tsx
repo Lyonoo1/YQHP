@@ -167,7 +167,7 @@ export default function App() {
   }, [selectedPlayer]);
 
   return (
-    <div className="fixed inset-0 w-full bg-white sm:bg-[#E9ECEF] flex justify-center">
+    <div className="fixed inset-0 z-10 w-full bg-white sm:bg-[#E9ECEF] flex justify-center">
       {/* Fixed Top Bar anchored at top:0 (triggers WebKit fixedContainerEdges to suppress iOS 26/27 standalone top progressive blur) */}
       <header className="fixed top-0 inset-x-0 mx-auto w-full max-w-[480px] z-30 bg-[#C60100] text-white pt-safe">
         <div className="h-[52px] px-4 flex items-center justify-between gap-4">
