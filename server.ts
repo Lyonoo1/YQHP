@@ -411,7 +411,11 @@ async function startServer() {
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
     router.use(express.static(distDir));
-    router.get('*', (_req, res) => {
+    router.get('*', (req, res) => {
+      if (path.extname(req.path)) {
+        res.status(404).end();
+        return;
+      }
       res.sendFile(path.join(distDir, 'index.html'));
     });
   }
