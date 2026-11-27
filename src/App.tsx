@@ -11,7 +11,7 @@ import { RoomsView } from './components/RoomsView';
 
 type TabKey = 'ratings' | 'leaderboard' | 'rooms' | 'profile';
 
-const EMBLEM_URL = '/src/assets/images/hupu_basketball_emblem_1795745583644.jpg';
+const EMBLEM_URL = `${import.meta.env.BASE_URL}src/assets/images/hupu_basketball_emblem_1795745583644.jpg`;
 
 function formatCountdown(ms: number): string {
   const clamped = Math.max(0, Math.floor(ms / 1000));

@@ -5,7 +5,7 @@ import type { PlayerSummary } from '../shared/types';
 import { PlayerAvatar } from './PlayerAvatar';
 import { StarDisplay } from './StarRating';
 
-const COURT_BANNER_URL = '/src/assets/images/park_court_banner_1795745585101.jpg';
+const COURT_BANNER_URL = `${import.meta.env.BASE_URL}src/assets/images/park_court_banner_1795745585101.jpg`;
 
 interface RatingFeedViewProps {
   players: PlayerSummary[];

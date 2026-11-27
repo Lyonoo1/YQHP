@@ -17,7 +17,10 @@ export function getAuthToken(): string | null {
   return inMemoryToken;
 }
 
+const BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const fullUrl = url.startsWith('/') ? `${BASE_PATH}${url}` : url;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((options.headers as Record<string, string>) ?? {}),
@@ -26,7 +29,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     headers.Authorization = `Bearer ${inMemoryToken}`;
   }
 
-  const res = await fetch(url, {
+  const res = await fetch(fullUrl, {
     ...options,
     headers,
   });

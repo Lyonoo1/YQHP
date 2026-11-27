@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
@@ -30,20 +31,29 @@ function requireAuth(req: AuthedRequest, res: Response, next: NextFunction): voi
   next();
 }
 
+function normalizeBasePath(raw?: string): string {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed || trimmed === '/') return '';
+  return `/${trimmed.replace(/^\/+|\/+$/g, '')}`;
+}
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+  const BASE_PATH = normalizeBasePath(process.env.BASE_PATH);
 
   app.use(express.json({ limit: '100kb' }));
-  app.use('/api', attachUser);
+
+  const router = express.Router();
+  router.use('/api', attachUser);
 
   // Bootstrap all daily data + current user
-  app.get('/api/bootstrap', (req: AuthedRequest, res: Response) => {
+  router.get('/api/bootstrap', (req: AuthedRequest, res: Response) => {
     res.json(store.getBootstrap(req.user ?? null));
   });
 
   // Auth routes
-  app.post('/api/auth/login', (req: AuthedRequest, res: Response) => {
+  router.post('/api/auth/login', (req: AuthedRequest, res: Response) => {
     const { account, password } = req.body ?? {};
     const result = store.login(String(account ?? ''), String(password ?? ''));
     if (!result.ok) {
@@ -53,7 +63,7 @@ async function startServer() {
     res.json({ token: result.token, user: result.user });
   });
 
-  app.post('/api/auth/quick-login', (req: AuthedRequest, res: Response) => {
+  router.post('/api/auth/quick-login', (req: AuthedRequest, res: Response) => {
     const { account, playerId } = req.body ?? {};
     const result = store.quickLogin(String(playerId ?? account ?? ''));
     if (!result.ok) {
@@ -63,7 +73,7 @@ async function startServer() {
     res.json({ token: result.token, user: result.user });
   });
 
-  app.post('/api/auth/register', (req: AuthedRequest, res: Response) => {
+  router.post('/api/auth/register', (req: AuthedRequest, res: Response) => {
     const { nickname, account, password } = req.body ?? {};
     const result = store.register({
       nickname: String(nickname ?? ''),
@@ -77,13 +87,13 @@ async function startServer() {
     res.status(201).json({ token: result.token, user: result.user });
   });
 
-  app.post('/api/auth/logout', (req: AuthedRequest, res: Response) => {
+  router.post('/api/auth/logout', (req: AuthedRequest, res: Response) => {
     store.deleteSession(req.authToken);
     res.json({ ok: true });
   });
 
   // Rating & comments routes (Auth required)
-  app.post('/api/players/:playerId/rate', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.post('/api/players/:playerId/rate', requireAuth, (req: AuthedRequest, res: Response) => {
     const { stars, comment } = req.body ?? {};
     const result = store.ratePlayer(
       req.user!,
@@ -98,7 +108,7 @@ async function startServer() {
     res.json(store.getBootstrap(req.user!));
   });
 
-  app.post('/api/players/:playerId/comments', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.post('/api/players/:playerId/comments', requireAuth, (req: AuthedRequest, res: Response) => {
     const { content } = req.body ?? {};
     const result = store.addComment(req.user!, String(req.params.playerId), String(content ?? ''));
     if (!result.ok) {
@@ -108,7 +118,7 @@ async function startServer() {
     res.status(201).json(store.getBootstrap(req.user!));
   });
 
-  app.post('/api/comments/:commentId/like', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.post('/api/comments/:commentId/like', requireAuth, (req: AuthedRequest, res: Response) => {
     const result = store.toggleCommentLike(req.user!, String(req.params.commentId));
     if (!result.ok) {
       res.status(404).json({ error: result.error });
@@ -117,7 +127,7 @@ async function startServer() {
     res.json(store.getBootstrap(req.user!));
   });
 
-  app.post('/api/comments/:commentId/replies', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.post('/api/comments/:commentId/replies', requireAuth, (req: AuthedRequest, res: Response) => {
     const { content, replyToUserId, replyToNickname } = req.body ?? {};
     const result = store.addReply(
       req.user!,
@@ -133,7 +143,7 @@ async function startServer() {
     res.status(201).json(store.getBootstrap(req.user!));
   });
 
-  app.post('/api/replies/:replyId/like', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.post('/api/replies/:replyId/like', requireAuth, (req: AuthedRequest, res: Response) => {
     const result = store.toggleReplyLike(req.user!, String(req.params.replyId));
     if (!result.ok) {
       res.status(404).json({ error: result.error });
@@ -143,7 +153,7 @@ async function startServer() {
   });
 
   // LoL-style Matchup Room routes (Auth required)
-  app.post('/api/rooms', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.post('/api/rooms', requireAuth, (req: AuthedRequest, res: Response) => {
     const { title, courtNote, mode, benchLimit } = req.body ?? {};
     const result = store.createRoom(req.user!, {
       title: String(title ?? ''),
@@ -158,7 +168,7 @@ async function startServer() {
     res.status(201).json(store.getBootstrap(req.user!));
   });
 
-  app.post('/api/rooms/:roomId/join', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.post('/api/rooms/:roomId/join', requireAuth, (req: AuthedRequest, res: Response) => {
     const { team, slotIndex } = req.body ?? {};
     const parsedSlot =
       slotIndex === undefined || slotIndex === null ? undefined : Number(slotIndex);
@@ -175,7 +185,7 @@ async function startServer() {
     res.json(store.getBootstrap(req.user!));
   });
 
-  app.post('/api/rooms/:roomId/leave', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.post('/api/rooms/:roomId/leave', requireAuth, (req: AuthedRequest, res: Response) => {
     const result = store.leaveRoom(req.user!, String(req.params.roomId));
     if (!result.ok) {
       res.status(400).json({ error: result.error });
@@ -184,7 +194,7 @@ async function startServer() {
     res.json(store.getBootstrap(req.user!));
   });
 
-  app.patch('/api/rooms/:roomId/status', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.patch('/api/rooms/:roomId/status', requireAuth, (req: AuthedRequest, res: Response) => {
     const { status } = req.body ?? {};
     const result = store.updateRoomStatus(
       req.user!,
@@ -198,7 +208,7 @@ async function startServer() {
     res.json(store.getBootstrap(req.user!));
   });
 
-  app.delete('/api/rooms/:roomId', requireAuth, (req: AuthedRequest, res: Response) => {
+  router.delete('/api/rooms/:roomId', requireAuth, (req: AuthedRequest, res: Response) => {
     const result = store.deleteRoom(req.user!, String(req.params.roomId));
     if (!result.ok) {
       res.status(403).json({ error: result.error });
@@ -212,17 +222,33 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    router.use(vite.middlewares);
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
-    app.use(express.static(distDir));
-    app.get('*', (_req, res) => {
+    router.use(express.static(distDir));
+    router.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
     });
   }
 
+  if (BASE_PATH) {
+    app.use(
+      BASE_PATH,
+      (req, res, next) => {
+        if (req.originalUrl === BASE_PATH) {
+          res.redirect(301, `${BASE_PATH}/`);
+          return;
+        }
+        next();
+      },
+      router,
+    );
+  } else {
+    app.use(router);
+  }
+
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`园区虎扑 server listening on http://localhost:${PORT}`);
+    console.log(`园区虎扑 server listening on http://0.0.0.0:${PORT}${BASE_PATH || '/'}`);
   });
 }
 
