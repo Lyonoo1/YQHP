@@ -148,9 +148,21 @@ export function shouldResetDailyData(storedDateKey: string, now: Date = new Date
   return storedDateKey !== getShanghaiDateKey(now);
 }
 
+export function normalizeStars(stars: number): number {
+  if (!Number.isFinite(stars)) return 0;
+  return Math.max(0, Math.min(5, Math.round(stars * 2) / 2));
+}
+
 export function starsToHupuScore(stars: number): number {
-  const clamped = Math.max(1, Math.min(5, Math.round(stars)));
-  return clamped * 2;
+  return Math.round(normalizeStars(stars) * 2);
+}
+
+function getStarDistributionBucket(stars: number): number {
+  if (stars >= 4.5) return 5; // 9-10 分
+  if (stars >= 3.5) return 4; // 7-8 分
+  if (stars >= 2.5) return 3; // 5-6 分
+  if (stars >= 1.5) return 2; // 3-4 分
+  return 1; // 0-2 分
 }
 
 export function computePlayerSummary(
@@ -167,8 +179,8 @@ export function computePlayerSummary(
   let myStars: number | null = null;
 
   for (const r of ratings) {
-    const s = Math.max(1, Math.min(5, Math.round(r.stars)));
-    countsByStar[s] += 1;
+    const s = normalizeStars(r.stars);
+    countsByStar[getStarDistributionBucket(s)] += 1;
     totalScoreSum += starsToHupuScore(s);
     if (currentUserId && r.authorId === currentUserId) {
       myStars = s;

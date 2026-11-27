@@ -182,7 +182,7 @@ export const RatingFeedView: React.FC<RatingFeedViewProps> = ({
                       <StarDisplay score={player.averageScore} size="xs" />
                     </div>
                     <p className="text-[11px] mt-0.5 font-medium text-[#C60100]">
-                      {player.myStars
+                      {player.myStars !== null
                         ? `我打${starsToHupuScore(player.myStars)}分`
                         : '去打分'}
                     </p>

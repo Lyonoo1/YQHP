@@ -529,8 +529,8 @@ class ParkHupuStore {
     if (!target) {
       return { ok: false, error: '球员不存在' };
     }
-    if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
-      return { ok: false, error: '请选择 1 至 5 星评分' };
+    if (!Number.isFinite(stars) || stars < 0 || stars > 5 || !Number.isInteger(stars * 2)) {
+      return { ok: false, error: '请选择 0 至 10 分评分' };
     }
 
     const nowIso = new Date().toISOString();

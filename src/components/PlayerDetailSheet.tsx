@@ -37,13 +37,13 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
   onDataUpdate,
   onToast,
 }) => {
-  const [selectedStars, setSelectedStars] = useState<number>(player.myStars ?? 0);
+  const [selectedStars, setSelectedStars] = useState<number | null>(player.myStars);
   const [commentInput, setCommentInput] = useState('');
   const [sortBy, setSortBy] = useState<'hot' | 'latest'>('hot');
   const [submittingRate, setSubmittingRate] = useState(false);
 
   useEffect(() => {
-    setSelectedStars(player.myStars ?? 0);
+    setSelectedStars(player.myStars);
   }, [player.id, player.myStars]);
 
   // Reply target state for mutual replying (reply to comment or to a specific reply)
@@ -84,15 +84,15 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
     }
 
     const trimmed = commentInput.trim();
-    if (selectedStars === 0 && trimmed.length === 0) {
-      onToast('请先选择星级打分或输入锐评内容');
+    if (selectedStars === null && trimmed.length === 0) {
+      onToast('请先选择 0-10 分打分或输入锐评内容');
       return;
     }
 
     setSubmittingRate(true);
     try {
       let nextData: BootstrapResponse;
-      if (selectedStars > 0) {
+      if (selectedStars !== null) {
         nextData = await api.ratePlayer(player.id, selectedStars, trimmed || undefined);
         onToast(
           trimmed
@@ -251,24 +251,33 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
               </div>
             </div>
 
-            {/* 5-Star Distribution Histogram (Classic Hupu style) */}
+            {/* 5-Tier Score Distribution Histogram (Classic Hupu style) */}
             <div className="mt-5 pt-4 border-t border-[#F0F2F5] space-y-1.5">
-              {player.starDistribution.map((row) => (
-                <div key={row.stars} className="flex items-center gap-2.5 text-[11px]">
-                  <span className="w-8 text-right text-[#6B7280] shrink-0 tabular-nums">
-                    {row.stars}星
-                  </span>
-                  <div className="flex-1 h-2 bg-[#F0F2F5] rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-[#E8940C] rounded-full transition-all duration-300"
-                      style={{ width: `${row.percent}%` }}
-                    />
+              {player.starDistribution.map((row) => {
+                const tierLabel: Record<number, string> = {
+                  5: '9-10分',
+                  4: '7-8分',
+                  3: '5-6分',
+                  2: '3-4分',
+                  1: '0-2分',
+                };
+                return (
+                  <div key={row.stars} className="flex items-center gap-2.5 text-[11px]">
+                    <span className="w-11 text-right text-[#6B7280] shrink-0 tabular-nums">
+                      {tierLabel[row.stars] ?? `${row.stars}星`}
+                    </span>
+                    <div className="flex-1 h-2 bg-[#F0F2F5] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-[#E8940C] rounded-full transition-all duration-300"
+                        style={{ width: `${row.percent}%` }}
+                      />
+                    </div>
+                    <span className="w-9 text-right text-[#6B7280] shrink-0 tabular-nums">
+                      {row.percent}%
+                    </span>
                   </div>
-                  <span className="w-9 text-right text-[#6B7280] shrink-0 tabular-nums">
-                    {row.percent}%
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 
@@ -276,7 +285,9 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
           <section className="bg-white mt-2.5 px-4 py-4 border-y border-[#E6E8EC]">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-sm font-bold text-[#141518]">
-                {player.myStars ? `我今日已打 ${starsToHupuScore(player.myStars)} 分` : '今日锐评打分'}
+                {player.myStars !== null
+                  ? `我今日已打 ${starsToHupuScore(player.myStars)} 分`
+                  : '今日锐评打分'}
               </h2>
               {!currentUser && (
                 <button
@@ -324,9 +335,9 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
               >
                 {submittingRate
                   ? '提交中...'
-                  : selectedStars > 0 && commentInput.trim()
+                  : selectedStars !== null && commentInput.trim()
                     ? `打出 ${starsToHupuScore(selectedStars)} 分并发布评论`
-                    : selectedStars > 0
+                    : selectedStars !== null
                       ? `提交 ${starsToHupuScore(selectedStars)} 分`
                       : '发布评论'}
               </button>
