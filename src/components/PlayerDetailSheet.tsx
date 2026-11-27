@@ -234,10 +234,8 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
       aria-label={`${player.nickname} 虎扑评分详情`}
     >
       <div className="w-full max-w-[480px] h-full bg-white flex flex-col overflow-hidden">
-        {/* iOS standalone top safe-area strip (0px on non-notch/desktop, keeps white status bar legible) */}
-        <div className="bg-[#C60100] pt-safe shrink-0" aria-hidden="true" />
-        {/* Compact Sticky Detail Header (48px) */}
-        <header className="shrink-0 bg-white border-b border-[#F0F2F5]">
+        {/* Compact Sticky Detail Header (48px content + iOS standalone clearance) */}
+        <header className="shrink-0 bg-white border-b border-[#F0F2F5] standalone-top-cushion">
           <div className="h-12 px-2 flex items-center justify-between">
             <button
               type="button"

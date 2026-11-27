@@ -157,11 +157,11 @@ export default function App() {
   const countdownText = formatCountdown(msLeft);
 
   return (
-    <div className="h-full w-full bg-[#C60100] sm:bg-[#E9ECEF] flex justify-center overflow-hidden">
+    <div className="h-dvh w-full bg-white sm:bg-[#E9ECEF] flex justify-center overflow-hidden">
       {/* Mobile-First App Shell (Edge-to-Edge on all phones, clean centered phone viewport on desktop) */}
       <div className="w-full max-w-[480px] h-full bg-[#F4F5F7] flex flex-col relative shadow-xl overflow-hidden">
-        {/* Compact Top Bar (52px content + iOS safe-area top inset) */}
-        <header className="z-30 bg-[#C60100] text-white pt-safe shrink-0">
+        {/* Compact Top Bar (52px content + iOS standalone blur clearance) */}
+        <header className="z-30 bg-[#C60100] text-white standalone-top-cushion shrink-0">
           <div className="h-[52px] px-4 flex items-center justify-between gap-4">
             <button
               type="button"

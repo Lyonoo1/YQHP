@@ -24,7 +24,7 @@
 
   @media (max-width: 639px) {
     html {
-      background-color: #C60100;
+      background-color: #ffffff;
     }
   }
 
@@ -40,8 +40,14 @@
   letter-spacing: -0.02em;
 }
 
-.pt-safe {
-  padding-top: env(safe-area-inset-top, 0px);
+.standalone-top-cushion {
+  padding-top: 0px;
+}
+
+@media (display-mode: standalone) {
+  .standalone-top-cushion {
+    padding-top: max(28px, calc(env(safe-area-inset-top, 0px) + 28px));
+  }
 }
 
 .pb-safe {
