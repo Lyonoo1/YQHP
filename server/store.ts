@@ -2,6 +2,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  createSignedSessionToken,
+  verifySignedSessionToken,
+} from './session';
+import {
   ANONYMOUS_DISPLAY_NAME,
   DEFAULT_PLAYER_SEEDS,
   ROOM_MODE_CONFIGS,
@@ -361,7 +365,7 @@ function createInitialDatabase(): DatabaseSchema {
 
 class ParkHupuStore {
   private db: DatabaseSchema;
-  private sessions = new Map<string, string>(); // token -> userId
+  private revokedSessions = new Map<string, number>(); // jti -> expMs
   private onlinePresence = new Map<string, number>(); // presenceKey -> lastSeenMs
 
   constructor() {
@@ -369,8 +373,18 @@ class ParkHupuStore {
     this.ensureDailyFreshness();
     setInterval(() => {
       this.ensureDailyFreshness();
-      pruneAndCountOnlinePresence(this.onlinePresence, Date.now());
+      const nowMs = Date.now();
+      pruneAndCountOnlinePresence(this.onlinePresence, nowMs);
+      this.pruneRevokedSessions(nowMs);
     }, 30_000).unref();
+  }
+
+  private pruneRevokedSessions(nowMs: number = Date.now()): void {
+    for (const [jti, expMs] of this.revokedSessions.entries()) {
+      if (nowMs >= expMs) {
+        this.revokedSessions.delete(jti);
+      }
+    }
   }
 
   public touchPresence(
@@ -532,21 +546,23 @@ class ParkHupuStore {
 
   public getUserByToken(token: string | undefined): PublicPlayer | null {
     if (!token) return null;
-    const userId = this.sessions.get(token);
-    if (!userId) return null;
-    const user = this.db.users.find((u) => u.id === userId);
+    const payload = verifySignedSessionToken(token);
+    if (!payload) return null;
+    if (this.revokedSessions.has(payload.jti)) return null;
+    const user = this.db.users.find((u) => u.id === payload.uid);
     return user ? toPublicPlayer(user) : null;
   }
 
   public createSession(userId: string): string {
-    const token = crypto.randomBytes(32).toString('hex');
-    this.sessions.set(token, userId);
+    const { token } = createSignedSessionToken(userId);
     return token;
   }
 
   public deleteSession(token: string | undefined): void {
-    if (token) {
-      this.sessions.delete(token);
+    if (!token) return;
+    const payload = verifySignedSessionToken(token);
+    if (payload) {
+      this.revokedSessions.set(payload.jti, payload.exp);
     }
   }
 

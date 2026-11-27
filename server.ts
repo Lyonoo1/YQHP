@@ -2,12 +2,19 @@ import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
+import {
+  buildClearSessionCookieHeader,
+  buildSessionCookieHeader,
+  isSameOriginOrCustomHeader,
+  parseCookieValue,
+} from './server/session';
 import { store } from './server/store';
 import type { PublicPlayer, RoomMode, RoomStatus, RoomTeamSlot } from './src/shared/types';
 
 interface AuthedRequest extends Request {
   user?: PublicPlayer | null;
   authToken?: string;
+  authViaCookie?: boolean;
   clientId?: string;
 }
 
@@ -30,9 +37,21 @@ function extractClientId(req: Request): string | undefined {
   return undefined;
 }
 
+function isHttpsRequest(req: Request): boolean {
+  if (req.secure) return true;
+  const proto = String(req.headers['x-forwarded-proto'] ?? '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  return proto === 'https';
+}
+
 function attachUser(req: AuthedRequest, _res: Response, next: NextFunction): void {
-  const token = extractBearerToken(req);
+  const bearerToken = extractBearerToken(req);
+  const cookieToken = bearerToken ? undefined : parseCookieValue(req.headers.cookie);
+  const token = bearerToken ?? cookieToken;
   req.authToken = token;
+  req.authViaCookie = Boolean(!bearerToken && cookieToken);
   req.user = store.getUserByToken(token);
   req.clientId = extractClientId(req) ?? (req.ip ? `ip_${req.ip}` : undefined);
   if (req.path !== '/presence/leave') {
@@ -43,8 +62,30 @@ function attachUser(req: AuthedRequest, _res: Response, next: NextFunction): voi
 
 function requireAuth(req: AuthedRequest, res: Response, next: NextFunction): void {
   if (!req.user) {
-    res.status(401).json({ error: '请先登录后再进行操作' });
+    res.status(401).json({ error: '登录状态已过期，请重新登录' });
     return;
+  }
+  const method = req.method.toUpperCase();
+  if (
+    req.authViaCookie &&
+    (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE')
+  ) {
+    const validCsrf = isSameOriginOrCustomHeader({
+      xRequestedWith:
+        typeof req.headers['x-requested-with'] === 'string'
+          ? req.headers['x-requested-with']
+          : undefined,
+      origin: typeof req.headers.origin === 'string' ? req.headers.origin : undefined,
+      host: typeof req.headers.host === 'string' ? req.headers.host : undefined,
+      forwardedHost:
+        typeof req.headers['x-forwarded-host'] === 'string'
+          ? req.headers['x-forwarded-host']
+          : undefined,
+    });
+    if (!validCsrf) {
+      res.status(403).json({ error: '请求来源校验失败，请刷新页面后重试' });
+      return;
+    }
   }
   next();
 }
@@ -57,6 +98,7 @@ function normalizeBasePath(raw?: string): string {
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   const PORT = Number(process.env.PORT) || 3000;
   const BASE_PATH = normalizeBasePath(process.env.BASE_PATH);
 
@@ -85,6 +127,10 @@ async function startServer() {
       return;
     }
     store.touchPresence(result.user.id, req.clientId);
+    res.setHeader(
+      'Set-Cookie',
+      buildSessionCookieHeader(result.token, { isHttps: isHttpsRequest(req) }),
+    );
     res.json({ token: result.token, user: result.user });
   });
 
@@ -96,6 +142,10 @@ async function startServer() {
       return;
     }
     store.touchPresence(result.user.id, req.clientId);
+    res.setHeader(
+      'Set-Cookie',
+      buildSessionCookieHeader(result.token, { isHttps: isHttpsRequest(req) }),
+    );
     res.json({ token: result.token, user: result.user });
   });
 
@@ -111,6 +161,10 @@ async function startServer() {
       return;
     }
     store.touchPresence(result.user.id, req.clientId);
+    res.setHeader(
+      'Set-Cookie',
+      buildSessionCookieHeader(result.token, { isHttps: isHttpsRequest(req) }),
+    );
     res.status(201).json({ token: result.token, user: result.user });
   });
 
@@ -120,6 +174,7 @@ async function startServer() {
       store.touchPresence(null, req.clientId);
     }
     store.deleteSession(req.authToken);
+    res.setHeader('Set-Cookie', buildClearSessionCookieHeader(isHttpsRequest(req)));
     res.json({ ok: true });
   });
 

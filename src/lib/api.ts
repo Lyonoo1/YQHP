@@ -25,6 +25,7 @@ export function sendPresenceLeave(): void {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Client-Id': CLIENT_ID,
+    'X-Requested-With': 'XMLHttpRequest',
   };
   if (inMemoryToken) {
     headers.Authorization = `Bearer ${inMemoryToken}`;
@@ -33,6 +34,7 @@ export function sendPresenceLeave(): void {
     void fetch(url, {
       method: 'POST',
       headers,
+      credentials: 'same-origin',
       body: JSON.stringify({ clientId: CLIENT_ID }),
       keepalive: true,
     });
@@ -46,6 +48,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Client-Id': CLIENT_ID,
+    'X-Requested-With': 'XMLHttpRequest',
     ...((options.headers as Record<string, string>) ?? {}),
   };
   if (inMemoryToken) {
@@ -55,6 +58,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(fullUrl, {
     ...options,
     headers,
+    credentials: 'same-origin',
   });
 
   const data = await res.json().catch(() => ({}));
