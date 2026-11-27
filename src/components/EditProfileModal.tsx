@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Check, X } from 'lucide-react';
 import { api } from '../lib/api';
 import { AVATAR_BG_PALETTE, formatJerseyNumber } from '../shared/scoring';
@@ -31,26 +31,34 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const initializedForUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (open) {
-      setNickname(currentUser.nickname);
-      setAccount(currentUser.account);
-      setCurrentPassword('');
-      setPassword('');
-      setConfirmPassword('');
-      setJerseyNumber(currentUser.jerseyNumber);
-      setAvatarBg(
-        currentUser.avatarBg ??
-          getDefaultAvatarBgHex(currentUser.nickname, currentUser.jerseyNumber),
-      );
-      setError(null);
+    if (!open) {
+      initializedForUserIdRef.current = null;
+      return;
     }
+    if (initializedForUserIdRef.current === currentUser.id) {
+      return;
+    }
+    initializedForUserIdRef.current = currentUser.id;
+    setNickname(currentUser.nickname);
+    setAccount(currentUser.account);
+    setCurrentPassword('');
+    setPassword('');
+    setConfirmPassword('');
+    setJerseyNumber(currentUser.jerseyNumber);
+    setAvatarBg(
+      currentUser.avatarBg ??
+        getDefaultAvatarBgHex(currentUser.nickname, currentUser.jerseyNumber),
+    );
+    setError(null);
   }, [open, currentUser]);
 
   if (!open) return null;
 
-  const isChangingPassword = password.length > 0;
+  const isChangingPassword =
+    currentPassword.length > 0 || password.length > 0 || confirmPassword.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +66,15 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
     if (isChangingPassword) {
       if (!currentPassword) {
-        setError('修改密码前请先输入当前登录密码');
+        setError('请输入原密码');
+        return;
+      }
+      if (!password) {
+        setError('请输入新密码');
+        return;
+      }
+      if (password.length < 4 || password.length > 32) {
+        setError('新密码长度需为 4-32 位');
         return;
       }
       if (password !== confirmPassword) {
@@ -240,12 +256,36 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
           {/* Optional Password Change */}
           <div className="space-y-3 rounded-2xl border border-[#E6E8EC] bg-[#FAFBFD] p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[#141518]">修改密码</span>
+              <span className="text-[11px] text-[#6B7280]">不修改请留空</span>
+            </div>
+
+            <div>
+              <label
+                htmlFor="edit-current-password"
+                className="block text-xs font-semibold text-[#4B5563] mb-1.5"
+              >
+                原密码
+              </label>
+              <input
+                id="edit-current-password"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                maxLength={32}
+                autoComplete="current-password"
+                placeholder="请输入原密码"
+                className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-white text-sm text-[#141518] focus:outline-none focus:border-[#C60100]"
+              />
+            </div>
+
             <div>
               <label
                 htmlFor="edit-password"
                 className="block text-xs font-semibold text-[#4B5563] mb-1.5"
               >
-                修改密码（留空则不修改）
+                新密码
               </label>
               <input
                 id="edit-password"
@@ -259,53 +299,28 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               />
             </div>
 
-            {isChangingPassword && (
-              <>
-                <div>
-                  <label
-                    htmlFor="edit-current-password"
-                    className="block text-xs font-semibold text-[#4B5563] mb-1.5"
-                  >
-                    当前密码（验证本人身份）
-                  </label>
-                  <input
-                    id="edit-current-password"
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    maxLength={32}
-                    required
-                    autoComplete="current-password"
-                    placeholder="请输入当前登录密码"
-                    className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-white text-sm text-[#141518] focus:outline-none focus:border-[#C60100]"
-                  />
-                </div>
+            <div>
+              <label
+                htmlFor="edit-confirm-password"
+                className="block text-xs font-semibold text-[#4B5563] mb-1.5"
+              >
+                确认新密码
+              </label>
+              <input
+                id="edit-confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                maxLength={32}
+                autoComplete="new-password"
+                placeholder="再次输入新密码"
+                className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-white text-sm text-[#141518] focus:outline-none focus:border-[#C60100]"
+              />
+            </div>
 
-                <div>
-                  <label
-                    htmlFor="edit-confirm-password"
-                    className="block text-xs font-semibold text-[#4B5563] mb-1.5"
-                  >
-                    确认新密码
-                  </label>
-                  <input
-                    id="edit-confirm-password"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    maxLength={32}
-                    required
-                    autoComplete="new-password"
-                    placeholder="再次输入新密码"
-                    className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-white text-sm text-[#141518] focus:outline-none focus:border-[#C60100]"
-                  />
-                </div>
-
-                <p className="text-[11px] text-[#6B7280] leading-relaxed">
-                  修改密码后，其他设备上的旧登录状态将立即失效。
-                </p>
-              </>
-            )}
+            <p className="text-[11px] text-[#6B7280] leading-relaxed">
+              修改密码后，其他设备上的旧登录状态将立即失效。
+            </p>
           </div>
 
           <button
