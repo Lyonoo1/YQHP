@@ -2,6 +2,7 @@ export type RoomCourtType = 'half' | 'full';
 export type RoomMode = 'half_2v2' | 'half_3v3' | 'half_4v4' | 'full_5v5';
 export type RoomTeamSlot = 'red' | 'blue' | 'bench';
 export type RoomStatus = 'recruiting' | 'playing';
+export type RoomDisplayState = 'waiting' | 'full' | 'playing';
 export type LeaderboardSort = 'heat' | 'highest' | 'lowest';
 
 export interface PublicPlayer {
@@ -9,6 +10,7 @@ export interface PublicPlayer {
   account: string;
   nickname: string;
   jerseyNumber: string;
+  avatarBg?: string;
   createdAt: string;
 }
 
@@ -16,7 +18,8 @@ export interface PlayerRatingRecord {
   id: string;
   playerId: string;
   authorId: string;
-  stars: number; // 1 to 5 (Hupu score = stars * 2)
+  stars: number; // 0 to 5 in 0.5 steps (Hupu score = stars * 2)
+  anonymous?: boolean;
   updatedAt: string;
 }
 
@@ -26,6 +29,7 @@ export interface ReplyRecord {
   playerId: string;
   authorId: string;
   authorNickname: string;
+  anonymous?: boolean;
   replyToUserId?: string;
   replyToNickname?: string;
   content: string;
@@ -38,6 +42,7 @@ export interface CommentRecord {
   playerId: string;
   authorId: string;
   authorNickname: string;
+  anonymous?: boolean;
   authorStars: number | null;
   content: string;
   likedBy: string[];
@@ -52,7 +57,7 @@ export interface StarBreakdown {
 }
 
 export interface PlayerSummary extends PublicPlayer {
-  averageScore: number | null; // 2.0 - 10.0, null if unrated today
+  averageScore: number | null; // 0.0 - 10.0, null if unrated today
   ratingCount: number;
   commentCount: number;
   totalLikes: number;
@@ -62,6 +67,7 @@ export interface PlayerSummary extends PublicPlayer {
   topComment: {
     id: string;
     authorNickname: string;
+    anonymous?: boolean;
     content: string;
     likeCount: number;
   } | null;
@@ -71,7 +77,19 @@ export interface RoomSlotMember {
   userId: string;
   nickname: string;
   jerseyNumber: string;
+  avatarBg?: string;
   joinedAt: string;
+}
+
+export interface RoomInviteRecord {
+  id: string;
+  inviterId: string;
+  inviterNickname: string;
+  inviteeId: string;
+  inviteeNickname: string;
+  inviteeJerseyNumber: string;
+  targetTeam: RoomTeamSlot;
+  createdAt: string;
 }
 
 export interface MatchRoom {
@@ -88,12 +106,15 @@ export interface MatchRoom {
   redTeam: (RoomSlotMember | null)[];
   blueTeam: (RoomSlotMember | null)[];
   bench: RoomSlotMember[];
+  invites?: RoomInviteRecord[];
+  scheduledAt?: string;
   createdAt: string;
 }
 
 export interface BootstrapResponse {
   currentDate: string;
   msUntilReset: number;
+  onlineCount: number;
   currentUser: PublicPlayer | null;
   players: PlayerSummary[];
   commentsByPlayer: Record<string, CommentRecord[]>;

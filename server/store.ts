@@ -2,16 +2,26 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  ANONYMOUS_DISPLAY_NAME,
   DEFAULT_PLAYER_SEEDS,
   ROOM_MODE_CONFIGS,
+  acceptRoomInvite,
+  addRoomInvite,
   computePlayerSummary,
   createEmptyRoomSlots,
+  formatJerseyNumber,
   getMsUntilShanghaiMidnight,
   getShanghaiDateKey,
   joinRoomSlot,
   normalizeAccount,
+  normalizeAvatarBg,
+  pruneAndCountOnlinePresence,
+  pruneExpiredRooms,
   removeMemberFromRoom,
+  removeRoomInvite,
+  shouldAutoStartRoom,
   shouldResetDailyData,
+  validateProfileUpdateInput,
   validateRegistrationInput,
 } from '../src/shared/scoring';
 import type {
@@ -21,6 +31,7 @@ import type {
   PlayerRatingRecord,
   PublicPlayer,
   ReplyRecord,
+  RoomInviteRecord,
   RoomMode,
   RoomStatus,
   RoomTeamSlot,
@@ -33,11 +44,14 @@ interface StoredUser extends PublicPlayer {
 
 interface DatabaseSchema {
   currentDate: string;
+  jerseySeedVersion?: number;
   users: StoredUser[];
   ratings: PlayerRatingRecord[];
   comments: CommentRecord[];
   rooms: MatchRoom[];
 }
+
+const CURRENT_JERSEY_SEED_VERSION = 3;
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'park-hupu-db.json');
@@ -60,7 +74,8 @@ function toPublicPlayer(user: StoredUser): PublicPlayer {
     id: user.id,
     account: user.account,
     nickname: user.nickname,
-    jerseyNumber: user.jerseyNumber,
+    jerseyNumber: formatJerseyNumber(user.jerseyNumber),
+    avatarBg: user.avatarBg,
     createdAt: user.createdAt,
   };
 }
@@ -85,6 +100,7 @@ function createInitialDatabase(): DatabaseSchema {
   const byAcc = new Map(users.map((u) => [u.account, u]));
   const uid = (acc: string) => byAcc.get(acc)!.id;
   const nick = (acc: string) => byAcc.get(acc)!.nickname;
+  const jersey = (acc: string) => byAcc.get(acc)!.jerseyNumber;
 
   const ratings: PlayerRatingRecord[] = [
     // 科比 YY08
@@ -229,25 +245,25 @@ function createInitialDatabase(): DatabaseSchema {
   half3v3Slots.redTeam[0] = {
     userId: uid('YY08'),
     nickname: nick('YY08'),
-    jerseyNumber: '08',
+    jerseyNumber: jersey('YY08'),
     joinedAt: nowIso,
   };
   half3v3Slots.redTeam[1] = {
     userId: uid('YY17'),
     nickname: nick('YY17'),
-    jerseyNumber: '17',
+    jerseyNumber: jersey('YY17'),
     joinedAt: nowIso,
   };
   half3v3Slots.blueTeam[0] = {
     userId: uid('YY15'),
     nickname: nick('YY15'),
-    jerseyNumber: '15',
+    jerseyNumber: jersey('YY15'),
     joinedAt: nowIso,
   };
   half3v3Slots.blueTeam[1] = {
     userId: uid('YY02'),
     nickname: nick('YY02'),
-    jerseyNumber: '02',
+    jerseyNumber: jersey('YY02'),
     joinedAt: nowIso,
   };
 
@@ -255,39 +271,40 @@ function createInitialDatabase(): DatabaseSchema {
   full5v5Slots.redTeam[0] = {
     userId: uid('YY07'),
     nickname: nick('YY07'),
-    jerseyNumber: '07',
+    jerseyNumber: jersey('YY07'),
     joinedAt: nowIso,
   };
   full5v5Slots.redTeam[1] = {
     userId: uid('YY01'),
     nickname: nick('YY01'),
-    jerseyNumber: '01',
+    jerseyNumber: jersey('YY01'),
     joinedAt: nowIso,
   };
   full5v5Slots.redTeam[2] = {
     userId: uid('YY05'),
     nickname: nick('YY05'),
-    jerseyNumber: '05',
+    jerseyNumber: jersey('YY05'),
     joinedAt: nowIso,
   };
   full5v5Slots.blueTeam[0] = {
     userId: uid('YY03'),
     nickname: nick('YY03'),
-    jerseyNumber: '03',
+    jerseyNumber: jersey('YY03'),
     joinedAt: nowIso,
   };
   full5v5Slots.blueTeam[1] = {
     userId: uid('YY09'),
     nickname: nick('YY09'),
-    jerseyNumber: '09',
+    jerseyNumber: jersey('YY09'),
     joinedAt: nowIso,
   };
 
+  const nowMs = Date.now();
   const rooms: MatchRoom[] = [
     {
       id: 'seed_room_3v3',
       title: '下班半场3v3血战局',
-      courtNote: '园区东区1号框 · 19:00',
+      courtNote: '园区东区1号框',
       courtType: 'half',
       mode: 'half_3v3',
       teamSize: 3,
@@ -298,12 +315,14 @@ function createInitialDatabase(): DatabaseSchema {
       redTeam: half3v3Slots.redTeam,
       blueTeam: half3v3Slots.blueTeam,
       bench: [],
-      createdAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+      invites: [],
+      scheduledAt: new Date(nowMs + 60 * 60_000).toISOString(),
+      createdAt: new Date(nowMs - 20 * 60_000).toISOString(),
     },
     {
       id: 'seed_room_5v5',
       title: '晚间全场5v5养生带替补',
-      courtNote: '园区中心大场 · 20:00',
+      courtNote: '园区中心大场',
       courtType: 'full',
       mode: 'full_5v5',
       teamSize: 5,
@@ -317,16 +336,19 @@ function createInitialDatabase(): DatabaseSchema {
         {
           userId: uid('YY11'),
           nickname: nick('YY11'),
-          jerseyNumber: '11',
+          jerseyNumber: jersey('YY11'),
           joinedAt: nowIso,
         },
       ],
-      createdAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+      invites: [],
+      scheduledAt: new Date(nowMs + 95 * 60_000).toISOString(),
+      createdAt: new Date(nowMs - 10 * 60_000).toISOString(),
     },
   ];
 
   return {
     currentDate: today,
+    jerseySeedVersion: CURRENT_JERSEY_SEED_VERSION,
     users,
     ratings,
     comments,
@@ -337,13 +359,110 @@ function createInitialDatabase(): DatabaseSchema {
 class ParkHupuStore {
   private db: DatabaseSchema;
   private sessions = new Map<string, string>(); // token -> userId
+  private onlinePresence = new Map<string, number>(); // presenceKey -> lastSeenMs
 
   constructor() {
     this.db = this.loadFromDisk();
     this.ensureDailyFreshness();
     setInterval(() => {
       this.ensureDailyFreshness();
+      pruneAndCountOnlinePresence(this.onlinePresence, Date.now());
     }, 30_000).unref();
+  }
+
+  public touchPresence(
+    userId: string | null | undefined,
+    clientId: string | null | undefined,
+    nowMs: number = Date.now(),
+  ): number {
+    const cleanClient = clientId ? clientId.trim().slice(0, 64) : '';
+    if (userId) {
+      if (cleanClient) {
+        this.onlinePresence.delete(`client:${cleanClient}`);
+      }
+      this.onlinePresence.set(`user:${userId}`, nowMs);
+    } else if (cleanClient) {
+      this.onlinePresence.set(`client:${cleanClient}`, nowMs);
+    }
+    return pruneAndCountOnlinePresence(this.onlinePresence, nowMs);
+  }
+
+  public leavePresence(
+    userId: string | null | undefined,
+    clientId: string | null | undefined,
+    nowMs: number = Date.now(),
+  ): number {
+    const cleanClient = clientId ? clientId.trim().slice(0, 64) : '';
+    if (userId) {
+      this.onlinePresence.delete(`user:${userId}`);
+    }
+    if (cleanClient) {
+      this.onlinePresence.delete(`client:${cleanClient}`);
+    }
+    return pruneAndCountOnlinePresence(this.onlinePresence, nowMs);
+  }
+
+  public getOnlineCount(nowMs: number = Date.now()): number {
+    return pruneAndCountOnlinePresence(this.onlinePresence, nowMs);
+  }
+
+  private migrateJerseySeeds(data: DatabaseSchema): boolean {
+    if (data.jerseySeedVersion === CURRENT_JERSEY_SEED_VERSION) {
+      return false;
+    }
+
+    for (const seed of DEFAULT_PLAYER_SEEDS) {
+      const existing = data.users.find(
+        (u) =>
+          u.nickname.trim().toLowerCase() === seed.nickname.trim().toLowerCase() ||
+          normalizeAccount(u.account) === normalizeAccount(seed.account),
+      );
+      if (existing) {
+        existing.jerseyNumber = formatJerseyNumber(seed.jerseyNumber);
+      } else {
+        const { salt, hash } = hashPassword('123456');
+        data.users.push({
+          id: `player_${seed.account.toLowerCase()}`,
+          account: seed.account,
+          nickname: seed.nickname,
+          jerseyNumber: formatJerseyNumber(seed.jerseyNumber),
+          createdAt: new Date().toISOString(),
+          passwordSalt: salt,
+          passwordHash: hash,
+        });
+      }
+    }
+
+    for (const user of data.users) {
+      user.jerseyNumber = formatJerseyNumber(user.jerseyNumber);
+    }
+
+    const byId = new Map(data.users.map((u) => [u.id, u]));
+    for (const room of data.rooms) {
+      for (const slot of room.redTeam) {
+        if (slot && byId.has(slot.userId)) {
+          slot.jerseyNumber = byId.get(slot.userId)!.jerseyNumber;
+        }
+      }
+      for (const slot of room.blueTeam) {
+        if (slot && byId.has(slot.userId)) {
+          slot.jerseyNumber = byId.get(slot.userId)!.jerseyNumber;
+        }
+      }
+      for (const sub of room.bench) {
+        if (byId.has(sub.userId)) {
+          sub.jerseyNumber = byId.get(sub.userId)!.jerseyNumber;
+        }
+      }
+      for (const inv of room.invites ?? []) {
+        if (byId.has(inv.inviteeId)) {
+          inv.inviteeJerseyNumber = byId.get(inv.inviteeId)!.jerseyNumber;
+        }
+      }
+    }
+
+    data.jerseySeedVersion = CURRENT_JERSEY_SEED_VERSION;
+    return true;
   }
 
   private loadFromDisk(): DatabaseSchema {
@@ -352,6 +471,9 @@ class ParkHupuStore {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(raw) as DatabaseSchema;
         if (parsed && Array.isArray(parsed.users) && parsed.users.length > 0) {
+          if (this.migrateJerseySeeds(parsed)) {
+            this.saveToDisk(parsed);
+          }
           return parsed;
         }
       }
@@ -374,15 +496,35 @@ class ParkHupuStore {
   }
 
   public ensureDailyFreshness(now: Date = new Date()): boolean {
+    let changed = false;
+
+    // 每日 0 点仅清空评分、评论、回复与点赞，不清空约球房间
     if (shouldResetDailyData(this.db.currentDate, now)) {
       this.db.currentDate = getShanghaiDateKey(now);
       this.db.ratings = [];
       this.db.comments = [];
-      this.db.rooms = [];
-      this.saveToDisk();
-      return true;
+      changed = true;
     }
-    return false;
+
+    // 跨天未开打/进行中的房间保留，仅当开打时间超期 2 小时后自动删除
+    const { activeRooms, removedCount } = pruneExpiredRooms(this.db.rooms, now);
+    if (removedCount > 0) {
+      this.db.rooms = activeRooms;
+      changed = true;
+    }
+
+    // 到达预计开打时间后自动切换为进行中
+    for (const room of this.db.rooms) {
+      if (shouldAutoStartRoom(room, now)) {
+        room.status = 'playing';
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.saveToDisk();
+    }
+    return changed;
   }
 
   public getUserByToken(token: string | undefined): PublicPlayer | null {
@@ -477,9 +619,79 @@ class ParkHupuStore {
     return { ok: true, token, user: toPublicPlayer(newUser) };
   }
 
+  public updateProfile(
+    user: PublicPlayer,
+    input: {
+      account?: string;
+      password?: string;
+      jerseyNumber?: string;
+      avatarBg?: string;
+    },
+  ): { ok: true; user: PublicPlayer } | { ok: false; error: string } {
+    this.ensureDailyFreshness();
+    const stored = this.db.users.find((u) => u.id === user.id);
+    if (!stored) {
+      return { ok: false, error: '用户不存在' };
+    }
+
+    const check = validateProfileUpdateInput(input, this.db.users, stored.id);
+    if (!check.valid) {
+      return { ok: false, error: check.error ?? '资料格式有误' };
+    }
+
+    if (input.account !== undefined) {
+      stored.account = normalizeAccount(input.account);
+    }
+    if (input.password !== undefined && input.password.length > 0) {
+      const { salt, hash } = hashPassword(input.password);
+      stored.passwordSalt = salt;
+      stored.passwordHash = hash;
+    }
+    if (input.jerseyNumber !== undefined) {
+      stored.jerseyNumber = formatJerseyNumber(input.jerseyNumber);
+    }
+    if (input.avatarBg !== undefined) {
+      stored.avatarBg = input.avatarBg.trim() === '' ? undefined : normalizeAvatarBg(input.avatarBg);
+    }
+
+    // Sync jerseyNumber and avatarBg inside active rooms
+    for (const room of this.db.rooms) {
+      for (const slot of room.redTeam) {
+        if (slot && slot.userId === stored.id) {
+          slot.jerseyNumber = stored.jerseyNumber;
+          slot.avatarBg = stored.avatarBg;
+        }
+      }
+      for (const slot of room.blueTeam) {
+        if (slot && slot.userId === stored.id) {
+          slot.jerseyNumber = stored.jerseyNumber;
+          slot.avatarBg = stored.avatarBg;
+        }
+      }
+      for (const sub of room.bench) {
+        if (sub.userId === stored.id) {
+          sub.jerseyNumber = stored.jerseyNumber;
+          sub.avatarBg = stored.avatarBg;
+        }
+      }
+      for (const inv of room.invites ?? []) {
+        if (inv.inviteeId === stored.id) {
+          inv.inviteeJerseyNumber = stored.jerseyNumber;
+        }
+      }
+    }
+
+    this.saveToDisk();
+    return { ok: true, user: toPublicPlayer(stored) };
+  }
+
   public getBootstrap(currentUser: PublicPlayer | null): BootstrapResponse {
     this.ensureDailyFreshness();
     const currentUserId = currentUser?.id ?? null;
+    const latestCurrentUser = currentUserId
+      ? this.db.users.find((u) => u.id === currentUserId) ?? null
+      : null;
+    const usersById = new Map(this.db.users.map((u) => [u.id, u]));
 
     const ratingsByPlayer = new Map<string, PlayerRatingRecord[]>();
     for (const r of this.db.ratings) {
@@ -496,7 +708,17 @@ class ParkHupuStore {
       if (!commentsByPlayer[c.playerId]) {
         commentsByPlayer[c.playerId] = [];
       }
-      commentsByPlayer[c.playerId].push(c);
+      const sanitizedComment: CommentRecord = {
+        ...c,
+        authorId: c.anonymous && c.authorId !== currentUserId ? 'anonymous' : c.authorId,
+        authorNickname: c.anonymous ? ANONYMOUS_DISPLAY_NAME : c.authorNickname,
+        replies: c.replies.map((rep) => ({
+          ...rep,
+          authorId: rep.anonymous && rep.authorId !== currentUserId ? 'anonymous' : rep.authorId,
+          authorNickname: rep.anonymous ? ANONYMOUS_DISPLAY_NAME : rep.authorNickname,
+        })),
+      };
+      commentsByPlayer[c.playerId].push(sanitizedComment);
     }
 
     const players = this.db.users.map((u) =>
@@ -508,13 +730,48 @@ class ParkHupuStore {
       ),
     );
 
+    const enrichSlot = (slot: MatchRoom['redTeam'][number]) => {
+      if (!slot) return null;
+      const latest = usersById.get(slot.userId);
+      return {
+        ...slot,
+        jerseyNumber: formatJerseyNumber(latest?.jerseyNumber ?? slot.jerseyNumber),
+        avatarBg: latest?.avatarBg ?? slot.avatarBg,
+      };
+    };
+
     return {
       currentDate: this.db.currentDate,
       msUntilReset: getMsUntilShanghaiMidnight(),
-      currentUser,
+      onlineCount: this.getOnlineCount(),
+      currentUser: latestCurrentUser ? toPublicPlayer(latestCurrentUser) : null,
       players,
       commentsByPlayer,
-      rooms: [...this.db.rooms].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      rooms: [...this.db.rooms]
+        .map((r) => ({
+          ...r,
+          redTeam: r.redTeam.map(enrichSlot),
+          blueTeam: r.blueTeam.map(enrichSlot),
+          bench: r.bench.map((sub) => {
+            const latest = usersById.get(sub.userId);
+            return {
+              ...sub,
+              jerseyNumber: formatJerseyNumber(latest?.jerseyNumber ?? sub.jerseyNumber),
+              avatarBg: latest?.avatarBg ?? sub.avatarBg,
+            };
+          }),
+          invites: (r.invites ?? []).map((inv) => {
+            const latest = usersById.get(inv.inviteeId);
+            return {
+              ...inv,
+              inviteeJerseyNumber: formatJerseyNumber(
+                latest?.jerseyNumber ?? inv.inviteeJerseyNumber,
+              ),
+            };
+          }),
+          scheduledAt: r.scheduledAt ?? r.createdAt,
+        }))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     };
   }
 
@@ -523,6 +780,7 @@ class ParkHupuStore {
     playerId: string,
     stars: number,
     commentContent?: string,
+    anonymous = false,
   ): { ok: true } | { ok: false; error: string } {
     this.ensureDailyFreshness();
     const target = this.db.users.find((u) => u.id === playerId);
@@ -539,6 +797,7 @@ class ParkHupuStore {
     );
     if (existing) {
       existing.stars = stars;
+      existing.anonymous = Boolean(anonymous);
       existing.updatedAt = nowIso;
     } else {
       this.db.ratings.push({
@@ -546,6 +805,7 @@ class ParkHupuStore {
         playerId,
         authorId: author.id,
         stars,
+        anonymous: Boolean(anonymous),
         updatedAt: nowIso,
       });
     }
@@ -566,7 +826,8 @@ class ParkHupuStore {
         id: `cmt_${crypto.randomUUID().slice(0, 10)}`,
         playerId,
         authorId: author.id,
-        authorNickname: author.nickname,
+        authorNickname: anonymous ? ANONYMOUS_DISPLAY_NAME : author.nickname,
+        anonymous: Boolean(anonymous),
         authorStars: stars,
         content: trimmedComment,
         likedBy: [],
@@ -583,6 +844,7 @@ class ParkHupuStore {
     author: PublicPlayer,
     playerId: string,
     contentInput: string,
+    anonymous = false,
   ): { ok: true; comment: CommentRecord } | { ok: false; error: string } {
     this.ensureDailyFreshness();
     const target = this.db.users.find((u) => u.id === playerId);
@@ -602,7 +864,8 @@ class ParkHupuStore {
       id: `cmt_${crypto.randomUUID().slice(0, 10)}`,
       playerId,
       authorId: author.id,
-      authorNickname: author.nickname,
+      authorNickname: anonymous ? ANONYMOUS_DISPLAY_NAME : author.nickname,
+      anonymous: Boolean(anonymous),
       authorStars: authorRating ? authorRating.stars : null,
       content,
       likedBy: [],
@@ -645,6 +908,7 @@ class ParkHupuStore {
     contentInput: string,
     replyToUserId?: string,
     replyToNickname?: string,
+    anonymous = false,
   ): { ok: true; reply: ReplyRecord } | { ok: false; error: string } {
     this.ensureDailyFreshness();
     const comment = this.db.comments.find((c) => c.id === commentId);
@@ -661,7 +925,8 @@ class ParkHupuStore {
       commentId: comment.id,
       playerId: comment.playerId,
       authorId: author.id,
-      authorNickname: author.nickname,
+      authorNickname: anonymous ? ANONYMOUS_DISPLAY_NAME : author.nickname,
+      anonymous: Boolean(anonymous),
       replyToUserId: replyToUserId?.trim() || undefined,
       replyToNickname: replyToNickname?.trim() || undefined,
       content,
@@ -705,6 +970,7 @@ class ParkHupuStore {
       courtNote?: string;
       mode: RoomMode;
       benchLimit?: number;
+      scheduledAt?: string;
     },
   ): { ok: true; room: MatchRoom } | { ok: false; error: string } {
     this.ensureDailyFreshness();
@@ -717,7 +983,7 @@ class ParkHupuStore {
     if (cleanTitle.length > 28) {
       return { ok: false, error: '房间名称不能超过 28 字' };
     }
-    const cleanCourt = (input.courtNote ?? '').trim().slice(0, 32) || '园区篮球场 · 即刻开打';
+    const cleanCourt = (input.courtNote ?? '').trim().slice(0, 32) || '园区篮球场';
     const allowedBench = [0, 2, 4, 6];
     const requestedBench = cfg.allowBench
       ? allowedBench.includes(Number(input.benchLimit))
@@ -725,14 +991,33 @@ class ParkHupuStore {
         : 4
       : 0;
 
+    let scheduledIso = new Date(Date.now() + 30 * 60_000).toISOString();
+    if (input.scheduledAt && input.scheduledAt.trim()) {
+      const parsedMs = Date.parse(input.scheduledAt);
+      if (!Number.isFinite(parsedMs)) {
+        return { ok: false, error: '开打时间格式无效' };
+      }
+      if (parsedMs < Date.now() - 90 * 60_000) {
+        return { ok: false, error: '开打时间不能早于当前太多，请重新选择' };
+      }
+      if (parsedMs > Date.now() + 7 * 24 * 60 * 60_000) {
+        return { ok: false, error: '最多仅支持预约未来 7 天内的约球房间' };
+      }
+      scheduledIso = new Date(parsedMs).toISOString();
+    }
+
     const slots = createEmptyRoomSlots(input.mode);
     const nowIso = new Date().toISOString();
     slots.redTeam[0] = {
       userId: creator.id,
       nickname: creator.nickname,
       jerseyNumber: creator.jerseyNumber,
+      avatarBg: creator.avatarBg,
       joinedAt: nowIso,
     };
+
+    const initialStatus: RoomStatus =
+      Date.parse(scheduledIso) <= Date.now() ? 'playing' : 'recruiting';
 
     const room: MatchRoom = {
       id: `room_${crypto.randomUUID().slice(0, 8)}`,
@@ -742,12 +1027,14 @@ class ParkHupuStore {
       mode: input.mode,
       teamSize: slots.teamSize,
       benchLimit: requestedBench,
-      status: 'recruiting',
+      status: initialStatus,
       creatorId: creator.id,
       creatorNickname: creator.nickname,
       redTeam: slots.redTeam,
       blueTeam: slots.blueTeam,
       bench: [],
+      invites: [],
+      scheduledAt: scheduledIso,
       createdAt: nowIso,
     };
 
@@ -777,6 +1064,7 @@ class ParkHupuStore {
         userId: user.id,
         nickname: user.nickname,
         jerseyNumber: user.jerseyNumber,
+        avatarBg: user.avatarBg,
         joinedAt: new Date().toISOString(),
       },
       team,
@@ -843,6 +1131,117 @@ class ParkHupuStore {
     this.db.rooms.splice(idx, 1);
     this.saveToDisk();
     return { ok: true };
+  }
+
+  public inviteToRoom(
+    inviter: PublicPlayer,
+    roomId: string,
+    targetPlayerId: string,
+    team: RoomTeamSlot,
+  ): { ok: true; room: MatchRoom } | { ok: false; error: string } {
+    this.ensureDailyFreshness();
+    const idx = this.db.rooms.findIndex((r) => r.id === roomId);
+    if (idx === -1) {
+      return { ok: false, error: '房间不存在或已解散' };
+    }
+    if (!['red', 'blue', 'bench'].includes(team)) {
+      return { ok: false, error: '无效的目标队伍' };
+    }
+
+    const targetUser = this.db.users.find((u) => u.id === targetPlayerId);
+    if (!targetUser) {
+      return { ok: false, error: '目标球手不存在' };
+    }
+
+    const nowIso = new Date().toISOString();
+
+    const invite: RoomInviteRecord = {
+      id: `inv_${crypto.randomUUID().slice(0, 10)}`,
+      inviterId: inviter.id,
+      inviterNickname: inviter.nickname,
+      inviteeId: targetUser.id,
+      inviteeNickname: targetUser.nickname,
+      inviteeJerseyNumber: targetUser.jerseyNumber,
+      targetTeam: team,
+      createdAt: nowIso,
+    };
+
+    const result = addRoomInvite(this.db.rooms[idx], invite);
+    if (!result.ok) {
+      return result;
+    }
+
+    this.db.rooms[idx] = result.room;
+    this.saveToDisk();
+    return { ok: true, room: result.room };
+  }
+
+  public respondToRoomInvite(
+    user: PublicPlayer,
+    roomId: string,
+    inviteId: string,
+    action: 'accept' | 'decline',
+  ): { ok: true; room: MatchRoom } | { ok: false; error: string } {
+    this.ensureDailyFreshness();
+    const idx = this.db.rooms.findIndex((r) => r.id === roomId);
+    if (idx === -1) {
+      return { ok: false, error: '房间不存在或已解散' };
+    }
+
+    const room = this.db.rooms[idx];
+    const invite = (room.invites ?? []).find((inv) => inv.id === inviteId);
+    if (!invite) {
+      return { ok: false, error: '邀请已失效或被撤回' };
+    }
+    if (invite.inviteeId !== user.id) {
+      return { ok: false, error: '只能回应发给自己的邀请' };
+    }
+
+    if (action === 'decline') {
+      this.db.rooms[idx] = removeRoomInvite(room, inviteId);
+      this.saveToDisk();
+      return { ok: true, room: this.db.rooms[idx] };
+    }
+
+    const accepted = acceptRoomInvite(room, inviteId, {
+      userId: user.id,
+      nickname: user.nickname,
+      jerseyNumber: user.jerseyNumber,
+      avatarBg: user.avatarBg,
+      joinedAt: new Date().toISOString(),
+    });
+    if (!accepted.ok) {
+      return accepted;
+    }
+
+    this.db.rooms[idx] = accepted.room;
+    this.saveToDisk();
+    return { ok: true, room: accepted.room };
+  }
+
+  public cancelRoomInvite(
+    user: PublicPlayer,
+    roomId: string,
+    inviteId: string,
+  ): { ok: true; room: MatchRoom } | { ok: false; error: string } {
+    this.ensureDailyFreshness();
+    const idx = this.db.rooms.findIndex((r) => r.id === roomId);
+    if (idx === -1) {
+      return { ok: false, error: '房间不存在或已解散' };
+    }
+
+    const room = this.db.rooms[idx];
+    const invite = (room.invites ?? []).find((inv) => inv.id === inviteId);
+    if (!invite) {
+      return { ok: false, error: '邀请不存在或已处理' };
+    }
+    if (invite.inviterId !== user.id && room.creatorId !== user.id && invite.inviteeId !== user.id) {
+      return { ok: false, error: '无权撤回该邀请' };
+    }
+
+    this.db.rooms[idx] = removeRoomInvite(room, inviteId);
+    this.saveToDisk();
+    return { ok: true, room: this.db.rooms[idx] };
   }
 }
 

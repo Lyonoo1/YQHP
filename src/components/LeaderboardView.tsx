@@ -112,6 +112,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
               <PlayerAvatar
                 nickname={player.nickname}
                 jerseyNumber={player.jerseyNumber}
+                avatarBg={player.avatarBg}
                 size={rank === 1 ? 'lg' : 'md'}
               />
               <span className="text-xs font-bold text-[#141518] mt-2 truncate w-full">
@@ -150,15 +151,13 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                 <PlayerAvatar
                   nickname={player.nickname}
                   jerseyNumber={player.jerseyNumber}
+                  avatarBg={player.avatarBg}
                   size="sm"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm font-bold text-[#141518] truncate">
                       {player.nickname}
-                    </span>
-                    <span className="text-[11px] text-[#9CA3AF] font-score">
-                      {player.account}
                     </span>
                   </div>
                   <p className="text-[11px] text-[#6B7280] tabular-nums mt-0.5 truncate whitespace-nowrap">

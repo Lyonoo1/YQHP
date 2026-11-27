@@ -1,7 +1,13 @@
-import React from 'react';
-import { LogIn, LogOut, ShieldCheck, Clock, UserPlus } from 'lucide-react';
+import React, { useState } from 'react';
+import { LogIn, LogOut, ShieldCheck, Clock, UserPlus, Pencil } from 'lucide-react';
 import { sortLeaderboard, starsToHupuScore } from '../shared/scoring';
-import type { MatchRoom, PlayerSummary, PublicPlayer } from '../shared/types';
+import type {
+  BootstrapResponse,
+  MatchRoom,
+  PlayerSummary,
+  PublicPlayer,
+} from '../shared/types';
+import { EditProfileModal } from './EditProfileModal';
 import { PlayerAvatar } from './PlayerAvatar';
 
 interface ProfileViewProps {
@@ -12,6 +18,8 @@ interface ProfileViewProps {
   onOpenAuth: (mode: 'login' | 'register') => void;
   onLogout: () => void;
   onSelectPlayer: (playerId: string) => void;
+  onDataUpdate: (next: BootstrapResponse) => void;
+  onToast: (msg: string) => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -22,7 +30,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenAuth,
   onLogout,
   onSelectPlayer,
+  onDataUpdate,
+  onToast,
 }) => {
+  const [editOpen, setEditOpen] = useState(false);
   const myProfile = currentUser
     ? players.find((p) => p.id === currentUser.id) ?? null
     : null;
@@ -74,38 +85,50 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
 
           <p className="text-[11px] text-[#6B7280] mt-4">
-            点击已注册球手（YY01 ~ YY17 等）即可一键登录，无需输入密码
+            点击已注册球手（YY01 ~ YY18 等）即可一键登录，无需输入密码
           </p>
         </section>
       ) : (
         <>
           {/* Logged-in Player Jersey Card */}
           <section className="bg-white rounded-2xl border border-[#E6E8EC] p-4">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-2.5">
               <div className="flex items-center gap-3 min-w-0">
                 <PlayerAvatar
                   nickname={currentUser.nickname}
                   jerseyNumber={currentUser.jerseyNumber}
+                  avatarBg={currentUser.avatarBg}
                   size="lg"
                 />
                 <div className="min-w-0">
                   <h1 className="text-lg font-bold text-[#141518] truncate">
                     {currentUser.nickname}
                   </h1>
-                  <p className="text-xs text-[#6B7280] mt-0.5">
-                    账号 {currentUser.account} · #{currentUser.jerseyNumber} 号球手
+                  <p className="text-xs text-[#6B7280] mt-0.5 truncate tabular-nums">
+                    账号 {currentUser.account} · #{currentUser.jerseyNumber}
                   </p>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={onLogout}
-                className="min-h-[40px] px-3 rounded-xl border border-[#E6E8EC] text-xs font-medium text-[#6B7280] hover:text-[#141518] flex items-center gap-1 shrink-0"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>退出</span>
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setEditOpen(true)}
+                  className="min-h-[40px] px-2.5 rounded-xl border border-[#C60100]/35 bg-[#FEF2F2]/60 text-xs font-semibold text-[#C60100] hover:bg-[#FEF2F2] flex items-center gap-1 whitespace-nowrap"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>编辑</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  aria-label="退出登录"
+                  className="min-h-[40px] px-2.5 rounded-xl border border-[#E6E8EC] text-xs font-medium text-[#6B7280] hover:text-[#141518] flex items-center gap-1 whitespace-nowrap"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>退出</span>
+                </button>
+              </div>
             </div>
 
             {myProfile && (
@@ -154,6 +177,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       <PlayerAvatar
                         nickname={p.nickname}
                         jerseyNumber={p.jerseyNumber}
+                        avatarBg={p.avatarBg}
                         size="sm"
                       />
                       <span className="text-sm font-semibold text-[#141518]">
@@ -199,16 +223,25 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       <section className="bg-white rounded-2xl border border-[#E6E8EC] p-4 space-y-2.5 text-xs text-[#4B5563]">
         <div className="flex items-center gap-2 font-semibold text-[#141518]">
           <Clock className="w-4 h-4 text-[#C60100]" aria-hidden="true" />
-          <span className="tabular-nums">每日 00:00 自动清零 · 距重置 {countdownText}</span>
+          <span className="tabular-nums">每日 00:00 清零评分互动 · 距重置 {countdownText}</span>
         </div>
         <p className="leading-relaxed text-[#6B7280]">
-          每天零点自动清空当日的球员评分、热评点赞与约球房间数据，开启全新一天球场战绩；已注册球手账号永久保留。
+          每天零点仅清空当日的球员评分、热评回复与点赞数据；未开打或进行中的约球房间跨天保留，并在开打时间超期 2 小时后自动删除；已注册球手账号永久保留。
         </p>
         <div className="flex items-center gap-2 pt-1 text-[#6B7280]">
           <ShieldCheck className="w-4 h-4 text-[#6B7280] shrink-0" aria-hidden="true" />
           <span>纯园区虎扑评分与热评互动，不录入得分/篮板等复杂技术统计。</span>
         </div>
       </section>
+      {currentUser && (
+        <EditProfileModal
+          open={editOpen}
+          currentUser={currentUser}
+          onClose={() => setEditOpen(false)}
+          onDataUpdate={onDataUpdate}
+          onToast={onToast}
+        />
+      )}
     </div>
   );
 };

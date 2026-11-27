@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, Heart, MessageCircle, Send } from 'lucide-react';
+import { ChevronLeft, EyeOff, Heart, MessageCircle, Send } from 'lucide-react';
 import { api } from '../lib/api';
 import { starsToHupuScore } from '../shared/scoring';
 import type {
@@ -39,6 +39,7 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
 }) => {
   const [selectedStars, setSelectedStars] = useState<number | null>(player.myStars);
   const [commentInput, setCommentInput] = useState('');
+  const [isAnonymous, setIsAnonymous] = useState(false);
   const [sortBy, setSortBy] = useState<'hot' | 'latest'>('hot');
   const [submittingRate, setSubmittingRate] = useState(false);
 
@@ -49,10 +50,11 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
   // Reply target state for mutual replying (reply to comment or to a specific reply)
   const [replyTarget, setReplyTarget] = useState<{
     commentId: string;
-    replyToUserId: string;
+    replyToUserId?: string;
     replyToNickname: string;
   } | null>(null);
   const [replyText, setReplyText] = useState('');
+  const [replyAnonymous, setReplyAnonymous] = useState(false);
   const [submittingReply, setSubmittingReply] = useState(false);
 
   const sortedComments = useMemo(() => {
@@ -92,16 +94,22 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
     setSubmittingRate(true);
     try {
       let nextData: BootstrapResponse;
+      const anonPrefix = isAnonymous ? '匿名' : '';
       if (selectedStars !== null) {
-        nextData = await api.ratePlayer(player.id, selectedStars, trimmed || undefined);
+        nextData = await api.ratePlayer(
+          player.id,
+          selectedStars,
+          trimmed || undefined,
+          isAnonymous,
+        );
         onToast(
           trimmed
-            ? `已给 ${player.nickname} 打出 ${starsToHupuScore(selectedStars)} 分并发布锐评`
-            : `已给 ${player.nickname} 打出 ${starsToHupuScore(selectedStars)} 分`,
+            ? `已${anonPrefix}给 ${player.nickname} 打出 ${starsToHupuScore(selectedStars)} 分并发布锐评`
+            : `已${anonPrefix}给 ${player.nickname} 打出 ${starsToHupuScore(selectedStars)} 分`,
         );
       } else {
-        nextData = await api.addComment(player.id, trimmed);
-        onToast('锐评已发布');
+        nextData = await api.addComment(player.id, trimmed, isAnonymous);
+        onToast(isAnonymous ? '匿名锐评已发布' : '锐评已发布');
       }
       setCommentInput('');
       onDataUpdate(nextData);
@@ -138,7 +146,7 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
     }
   };
 
-  const openReplyBox = (commentId: string, toUserId: string, toNickname: string) => {
+  const openReplyBox = (commentId: string, toUserId: string | undefined, toNickname: string) => {
     if (!currentUser) {
       onRequireAuth();
       return;
@@ -167,11 +175,16 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
         clean,
         replyTarget.replyToUserId,
         replyTarget.replyToNickname,
+        replyAnonymous,
       );
       onDataUpdate(next);
       setReplyText('');
       setReplyTarget(null);
-      onToast(`已回复 ${replyTarget.replyToNickname}`);
+      onToast(
+        replyAnonymous
+          ? `已匿名回复 ${replyTarget.replyToNickname}`
+          : `已回复 ${replyTarget.replyToNickname}`,
+      );
     } catch (err) {
       onToast(err instanceof Error ? err.message : '回复失败');
     } finally {
@@ -217,14 +230,15 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
                 <PlayerAvatar
                   nickname={player.nickname}
                   jerseyNumber={player.jerseyNumber}
+                  avatarBg={player.avatarBg}
                   size="lg"
                 />
                 <div className="min-w-0">
                   <h1 className="text-xl font-bold text-[#141518] truncate">
                     {player.nickname}
                   </h1>
-                  <p className="text-xs text-[#6B7280] mt-0.5">
-                    账号 {player.account} · 热度 {player.heatScore}
+                  <p className="text-xs text-[#6B7280] mt-0.5 tabular-nums">
+                    #{player.jerseyNumber} 号球衣 · 热度 {player.heatScore}
                   </p>
                 </div>
               </div>
@@ -328,6 +342,26 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
                 />
               </div>
 
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isAnonymous}
+                  onClick={() => setIsAnonymous((v) => !v)}
+                  className={`min-h-[36px] px-3 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                    isAnonymous
+                      ? 'border-[#141518] bg-[#141518] text-white'
+                      : 'border-[#DCE0E6] bg-white text-[#4B5563] hover:border-[#141518]'
+                  }`}
+                >
+                  <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                  <span>{isAnonymous ? '已开启匿名' : '匿名打分 / 评论'}</span>
+                </button>
+                <span className="text-[11px] text-[#6B7280] truncate">
+                  {isAnonymous ? '将以「匿名球友」身份展示' : '当前为实名发布'}
+                </span>
+              </div>
+
               <button
                 type="submit"
                 disabled={submittingRate}
@@ -336,10 +370,10 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
                 {submittingRate
                   ? '提交中...'
                   : selectedStars !== null && commentInput.trim()
-                    ? `打出 ${starsToHupuScore(selectedStars)} 分并发布评论`
+                    ? `${isAnonymous ? '匿名' : ''}打出 ${starsToHupuScore(selectedStars)} 分并发布评论`
                     : selectedStars !== null
-                      ? `提交 ${starsToHupuScore(selectedStars)} 分`
-                      : '发布评论'}
+                      ? `${isAnonymous ? '匿名' : ''}提交 ${starsToHupuScore(selectedStars)} 分`
+                      : `${isAnonymous ? '匿名' : ''}发布评论`}
               </button>
             </form>
           </section>
@@ -405,7 +439,11 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
                           <button
                             type="button"
                             onClick={() =>
-                              openReplyBox(c.id, c.authorId, c.authorNickname)
+                              openReplyBox(
+                                c.id,
+                                c.anonymous ? undefined : c.authorId,
+                                c.authorNickname,
+                              )
                             }
                             aria-label={`回复 ${c.authorNickname}`}
                             className="min-h-[36px] px-2 flex items-center gap-1 text-xs text-[#6B7280] hover:text-[#141518]"
@@ -466,7 +504,11 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        openReplyBox(c.id, rep.authorId, rep.authorNickname)
+                                        openReplyBox(
+                                          c.id,
+                                          rep.anonymous ? undefined : rep.authorId,
+                                          rep.authorNickname,
+                                        )
                                       }
                                       aria-label={`回复 ${rep.authorNickname}`}
                                       className="px-1.5 py-1 text-[11px] text-[#6B7280] hover:text-[#141518]"
@@ -497,39 +539,54 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
 
                       {/* Inline Reply Input when replying to this comment/thread */}
                       {replyTarget?.commentId === c.id && (
-                        <form
-                          onSubmit={handleSubmitReply}
-                          className="mt-2.5 flex items-center gap-2"
-                        >
-                          <label htmlFor={`reply-input-${c.id}`} className="sr-only">
-                            回复 {replyTarget.replyToNickname}
-                          </label>
-                          <input
-                            id={`reply-input-${c.id}`}
-                            type="text"
-                            autoFocus
-                            value={replyText}
-                            onChange={(e) => setReplyText(e.target.value)}
-                            placeholder={`回复 @${replyTarget.replyToNickname}...`}
-                            maxLength={200}
-                            className="flex-1 h-10 px-3 rounded-xl bg-[#F4F5F7] border border-[#DCE0E6] text-xs text-[#141518] focus:outline-none focus:border-[#C60100] focus:bg-white"
-                          />
-                          <button
-                            type="submit"
-                            disabled={submittingReply || !replyText.trim()}
-                            aria-label="发送回复"
-                            className="min-w-[44px] h-10 px-3 rounded-xl bg-[#C60100] text-white text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            <span>发送</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setReplyTarget(null)}
-                            className="h-10 px-2 text-xs text-[#6B7280]"
-                          >
-                            取消
-                          </button>
+                        <form onSubmit={handleSubmitReply} className="mt-2.5 space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <label htmlFor={`reply-input-${c.id}`} className="sr-only">
+                              回复 {replyTarget.replyToNickname}
+                            </label>
+                            <input
+                              id={`reply-input-${c.id}`}
+                              type="text"
+                              autoFocus
+                              value={replyText}
+                              onChange={(e) => setReplyText(e.target.value)}
+                              placeholder={`回复 @${replyTarget.replyToNickname}...`}
+                              maxLength={200}
+                              className="flex-1 h-10 px-3 rounded-xl bg-[#F4F5F7] border border-[#DCE0E6] text-xs text-[#141518] focus:outline-none focus:border-[#C60100] focus:bg-white"
+                            />
+                            <button
+                              type="submit"
+                              disabled={submittingReply || !replyText.trim()}
+                              aria-label="发送回复"
+                              className="min-w-[44px] h-10 px-3 rounded-xl bg-[#C60100] text-white text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>发送</span>
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between px-0.5">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={replyAnonymous}
+                              onClick={() => setReplyAnonymous((v) => !v)}
+                              className={`min-h-[30px] px-2.5 rounded-lg border text-[11px] font-medium flex items-center gap-1 transition-colors ${
+                                replyAnonymous
+                                  ? 'border-[#141518] bg-[#141518] text-white'
+                                  : 'border-[#DCE0E6] bg-white text-[#6B7280]'
+                              }`}
+                            >
+                              <EyeOff className="w-3 h-3" />
+                              <span>{replyAnonymous ? '匿名回复已开' : '匿名回复'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setReplyTarget(null)}
+                              className="h-8 px-2 text-xs text-[#6B7280]"
+                            >
+                              取消
+                            </button>
+                          </div>
                         </form>
                       )}
                     </article>

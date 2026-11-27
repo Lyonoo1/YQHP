@@ -6,11 +6,100 @@ import type {
   PlayerSummary,
   PublicPlayer,
   RoomCourtType,
+  RoomDisplayState,
+  RoomInviteRecord,
   RoomMode,
   RoomSlotMember,
   RoomTeamSlot,
   StarBreakdown,
 } from './types';
+
+export const ANONYMOUS_DISPLAY_NAME = '匿名球友';
+
+export interface AvatarBgOption {
+  hex: string;
+  label: string;
+}
+
+export const AVATAR_BG_PALETTE: AvatarBgOption[] = [
+  { hex: '#1D2432', label: '深夜藏青' },
+  { hex: '#C60100', label: '虎扑红' },
+  { hex: '#8B1A1A', label: '公牛暗红' },
+  { hex: '#1E3A5F', label: '快船深蓝' },
+  { hex: '#2C3E2D', label: '凯尔特绿' },
+  { hex: '#4A2545', label: '湖人暗紫' },
+  { hex: '#7C3A14', label: '尼克斯橙' },
+  { hex: '#1F4E5F', label: '雷霆海青' },
+  { hex: '#332E2B', label: '黑曼巴炭' },
+  { hex: '#0F766E', label: '翡翠青' },
+  { hex: '#B45309', label: '总决赛金' },
+  { hex: '#312E81', label: '皇家靛蓝' },
+];
+
+export function isValidAvatarBg(color: string): boolean {
+  return AVATAR_BG_PALETTE.some((c) => c.hex.toUpperCase() === color.trim().toUpperCase());
+}
+
+export function normalizeAvatarBg(color?: string): string | undefined {
+  if (!color) return undefined;
+  const upper = color.trim().toUpperCase();
+  const match = AVATAR_BG_PALETTE.find((c) => c.hex.toUpperCase() === upper);
+  return match?.hex;
+}
+
+export function validateProfileUpdateInput(
+  input: {
+    account?: string;
+    password?: string;
+    jerseyNumber?: string;
+    avatarBg?: string;
+  },
+  existingUsers: Pick<PublicPlayer, 'id' | 'account'>[],
+  currentUserId: string,
+): { valid: boolean; error?: string } {
+  if (input.account !== undefined) {
+    const cleanAccount = input.account.trim();
+    if (!/^[A-Za-z0-9_]{2,20}$/.test(cleanAccount)) {
+      return { valid: false, error: '账号需为 2-20 位字母、数字或下划线（如 YY18）' };
+    }
+    const normalizedAcc = normalizeAccount(cleanAccount);
+    if (
+      existingUsers.some(
+        (u) => u.id !== currentUserId && normalizeAccount(u.account) === normalizedAcc,
+      )
+    ) {
+      return { valid: false, error: '该账号已被其他球手占用，请更换账号' };
+    }
+  }
+
+  if (input.password !== undefined && input.password.length > 0) {
+    if (input.password.length < 4 || input.password.length > 32) {
+      return { valid: false, error: '新密码长度需为 4-32 位' };
+    }
+  }
+
+  if (input.jerseyNumber !== undefined) {
+    const cleanNum = input.jerseyNumber.trim();
+    if (!/^\d{1,2}$/.test(cleanNum)) {
+      return { valid: false, error: '球衣号码需为 0-99 的 1-2 位数字' };
+    }
+  }
+
+  if (input.avatarBg !== undefined && input.avatarBg.trim() !== '') {
+    if (!isValidAvatarBg(input.avatarBg)) {
+      return { valid: false, error: '请选择有效的头像背景色' };
+    }
+  }
+
+  return { valid: true };
+}
+
+export function formatJerseyNumber(raw: string | number): string {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (!digits) return '00';
+  const two = digits.slice(0, 2);
+  return two.length === 1 ? `0${two}` : two;
+}
 
 export interface DefaultPlayerSeed {
   nickname: string;
@@ -19,23 +108,24 @@ export interface DefaultPlayerSeed {
 }
 
 export const DEFAULT_PLAYER_SEEDS: DefaultPlayerSeed[] = [
-  { nickname: '假多夫', account: 'YY01', jerseyNumber: '01' },
-  { nickname: '强哥', account: 'YY02', jerseyNumber: '02' },
-  { nickname: 'pg one', account: 'YY03', jerseyNumber: '03' },
-  { nickname: '刀郎', account: 'YY04', jerseyNumber: '04' },
-  { nickname: '王总', account: 'YY05', jerseyNumber: '05' },
-  { nickname: '秋天', account: 'YY06', jerseyNumber: '06' },
-  { nickname: '篮球之神', account: 'YY07', jerseyNumber: '07' },
-  { nickname: '科比', account: 'YY08', jerseyNumber: '08' },
-  { nickname: 'YDB', account: 'YY09', jerseyNumber: '09' },
-  { nickname: '科冉', account: 'YY10', jerseyNumber: '10' },
-  { nickname: '小杰喵', account: 'YY11', jerseyNumber: '11' },
-  { nickname: '启龙', account: 'YY12', jerseyNumber: '12' },
-  { nickname: '小规不叫', account: 'YY13', jerseyNumber: '13' },
-  { nickname: '蜘蛛侠', account: 'YY14', jerseyNumber: '14' },
-  { nickname: '老詹', account: 'YY15', jerseyNumber: '15' },
-  { nickname: '樊振东', account: 'YY16', jerseyNumber: '16' },
-  { nickname: '篮板王', account: 'YY17', jerseyNumber: '17' },
+  { nickname: '假多夫', account: 'YY01', jerseyNumber: '07' },
+  { nickname: '强哥', account: 'YY02', jerseyNumber: '91' },
+  { nickname: 'pg one', account: 'YY03', jerseyNumber: '06' },
+  { nickname: '刀郎', account: 'YY04', jerseyNumber: '30' },
+  { nickname: '王总', account: 'YY05', jerseyNumber: '01' },
+  { nickname: '秋天', account: 'YY06', jerseyNumber: '35' },
+  { nickname: '篮球之神', account: 'YY07', jerseyNumber: '08' },
+  { nickname: '科比', account: 'YY08', jerseyNumber: '09' },
+  { nickname: 'YDB', account: 'YY09', jerseyNumber: '00' },
+  { nickname: '科冉', account: 'YY10', jerseyNumber: '02' },
+  { nickname: '小杰喵', account: 'YY11', jerseyNumber: '15' },
+  { nickname: '启龙', account: 'YY12', jerseyNumber: '77' },
+  { nickname: '小规不叫', account: 'YY13', jerseyNumber: '23' },
+  { nickname: '蜘蛛侠', account: 'YY14', jerseyNumber: '45' },
+  { nickname: '老詹', account: 'YY15', jerseyNumber: '11' },
+  { nickname: '樊振东', account: 'YY16', jerseyNumber: '10' },
+  { nickname: '篮板王', account: 'YY17', jerseyNumber: '13' },
+  { nickname: '法拉利', account: 'YY18', jerseyNumber: '24' },
 ];
 
 export interface RoomModeConfig {
@@ -233,7 +323,10 @@ export function computePlayerSummary(
     topComment: bestComment
       ? {
           id: bestComment.id,
-          authorNickname: bestComment.authorNickname,
+          authorNickname: bestComment.anonymous
+            ? ANONYMOUS_DISPLAY_NAME
+            : bestComment.authorNickname,
+          anonymous: Boolean(bestComment.anonymous),
           content: bestComment.content,
           likeCount: bestComment.likedBy.length,
         }
@@ -302,6 +395,19 @@ export function removeMemberFromRoom(room: MatchRoom, userId: string): MatchRoom
   };
 }
 
+export function getMemberRoomTeam(room: MatchRoom, userId: string): RoomTeamSlot | null {
+  if (room.redTeam.some((s) => s?.userId === userId)) return 'red';
+  if (room.blueTeam.some((s) => s?.userId === userId)) return 'blue';
+  if (room.bench.some((b) => b.userId === userId)) return 'bench';
+  return null;
+}
+
+export function getAvailableSlotsForTeam(room: MatchRoom, targetTeam: RoomTeamSlot): number {
+  if (targetTeam === 'red') return room.redTeam.filter((s) => s === null).length;
+  if (targetTeam === 'blue') return room.blueTeam.filter((s) => s === null).length;
+  return Math.max(0, room.benchLimit - room.bench.length);
+}
+
 export function joinRoomSlot(
   room: MatchRoom,
   member: RoomSlotMember,
@@ -309,6 +415,7 @@ export function joinRoomSlot(
   slotIndex?: number,
 ): { ok: true; room: MatchRoom } | { ok: false; error: string } {
   const cleaned = removeMemberFromRoom(room, member.userId);
+  const nextInvites = (cleaned.invites ?? []).filter((inv) => inv.inviteeId !== member.userId);
 
   if (targetTeam === 'bench') {
     if (cleaned.benchLimit <= 0) {
@@ -322,6 +429,7 @@ export function joinRoomSlot(
       room: {
         ...cleaned,
         bench: [...cleaned.bench, member],
+        invites: nextInvites,
       },
     };
   }
@@ -346,7 +454,260 @@ export function joinRoomSlot(
     ok: true,
     room:
       targetTeam === 'red'
-        ? { ...cleaned, redTeam: teamSlots }
-        : { ...cleaned, blueTeam: teamSlots },
+        ? { ...cleaned, redTeam: teamSlots, invites: nextInvites }
+        : { ...cleaned, blueTeam: teamSlots, invites: nextInvites },
   };
+}
+
+export function addRoomInvite(
+  room: MatchRoom,
+  invite: RoomInviteRecord,
+): { ok: true; room: MatchRoom } | { ok: false; error: string } {
+  if (invite.inviterId === invite.inviteeId) {
+    return { ok: false, error: '不能邀请自己，直接点击空位即可入座' };
+  }
+  const currentTeam = getMemberRoomTeam(room, invite.inviteeId);
+  if (currentTeam === invite.targetTeam) {
+    const label =
+      invite.targetTeam === 'red' ? '红队' : invite.targetTeam === 'blue' ? '蓝队' : '替补席';
+    return { ok: false, error: `${invite.inviteeNickname} 已经在${label}中` };
+  }
+  if (invite.targetTeam === 'bench' && room.benchLimit <= 0) {
+    return { ok: false, error: '当前房间未开启替补席' };
+  }
+  if (getAvailableSlotsForTeam(room, invite.targetTeam) <= 0) {
+    const label =
+      invite.targetTeam === 'red' ? '红队' : invite.targetTeam === 'blue' ? '蓝队' : '替补席';
+    return { ok: false, error: `${label}已满员，无法发送邀请` };
+  }
+
+  const remaining = (room.invites ?? []).filter((inv) => inv.inviteeId !== invite.inviteeId);
+  return {
+    ok: true,
+    room: {
+      ...room,
+      invites: [invite, ...remaining],
+    },
+  };
+}
+
+export function removeRoomInvite(room: MatchRoom, inviteId: string): MatchRoom {
+  return {
+    ...room,
+    invites: (room.invites ?? []).filter((inv) => inv.id !== inviteId),
+  };
+}
+
+export function acceptRoomInvite(
+  room: MatchRoom,
+  inviteId: string,
+  member: RoomSlotMember,
+): { ok: true; room: MatchRoom; targetTeam: RoomTeamSlot } | { ok: false; error: string } {
+  const invite = (room.invites ?? []).find((inv) => inv.id === inviteId);
+  if (!invite) {
+    return { ok: false, error: '邀请已失效或被撤回' };
+  }
+  if (invite.inviteeId !== member.userId) {
+    return { ok: false, error: '只能回应发给自己的邀请' };
+  }
+
+  const joined = joinRoomSlot(room, member, invite.targetTeam);
+  if (!joined.ok) {
+    return joined;
+  }
+
+  return {
+    ok: true,
+    room: removeRoomInvite(joined.room, inviteId),
+    targetTeam: invite.targetTeam,
+  };
+}
+
+export const ROOM_EXPIRE_AFTER_MS = 2 * 60 * 60 * 1000;
+export const ROOM_EXPIRY_WARNING_WINDOW_MS = 30 * 60 * 1000;
+export const UPCOMING_MATCH_WINDOW_MS = 2 * 60 * 60 * 1000;
+export const UPCOMING_IMMINENT_WINDOW_MS = 60 * 60 * 1000;
+
+export type UpcomingUrgencyLevel = 'imminent' | 'soon';
+
+export function getUpcomingMatchUrgency(msUntilStart: number): UpcomingUrgencyLevel {
+  return msUntilStart <= UPCOMING_IMMINENT_WINDOW_MS ? 'imminent' : 'soon';
+}
+
+export function getRoomStartTimestampMs(room: Pick<MatchRoom, 'scheduledAt' | 'createdAt'>): number {
+  const scheduled = room.scheduledAt ? Date.parse(room.scheduledAt) : Number.NaN;
+  if (Number.isFinite(scheduled)) {
+    return scheduled;
+  }
+  const created = Date.parse(room.createdAt);
+  return Number.isFinite(created) ? created : Date.now();
+}
+
+export function shouldAutoStartRoom(
+  room: Pick<MatchRoom, 'status' | 'scheduledAt' | 'createdAt'>,
+  now: Date = new Date(),
+): boolean {
+  if (room.status === 'playing') return false;
+  return now.getTime() >= getRoomStartTimestampMs(room);
+}
+
+export function getRoomDisplayState(
+  room: Pick<MatchRoom, 'status' | 'scheduledAt' | 'createdAt' | 'redTeam' | 'blueTeam' | 'teamSize'>,
+  now: Date = new Date(),
+): RoomDisplayState {
+  if (room.status === 'playing' || now.getTime() >= getRoomStartTimestampMs(room)) {
+    return 'playing';
+  }
+  const redCount = room.redTeam.filter(Boolean).length;
+  const blueCount = room.blueTeam.filter(Boolean).length;
+  if (redCount >= room.teamSize && blueCount >= room.teamSize) {
+    return 'full';
+  }
+  return 'waiting';
+}
+
+export interface UpcomingRoomItem {
+  room: MatchRoom;
+  msUntilStart: number;
+  startTimestampMs: number;
+  displayState: RoomDisplayState;
+  urgency: UpcomingUrgencyLevel;
+}
+
+export function getUpcomingSoonRooms(
+  rooms: MatchRoom[],
+  now: Date = new Date(),
+  windowMs: number = UPCOMING_MATCH_WINDOW_MS,
+): UpcomingRoomItem[] {
+  const nowMs = now.getTime();
+  const list: UpcomingRoomItem[] = [];
+
+  for (const room of rooms) {
+    if (room.status === 'playing') continue;
+    const startTimestampMs = getRoomStartTimestampMs(room);
+    const msUntilStart = startTimestampMs - nowMs;
+    if (msUntilStart > 0 && msUntilStart <= windowMs) {
+      list.push({
+        room,
+        msUntilStart,
+        startTimestampMs,
+        displayState: getRoomDisplayState(room, now),
+        urgency: getUpcomingMatchUrgency(msUntilStart),
+      });
+    }
+  }
+
+  return list.sort((a, b) => a.startTimestampMs - b.startTimestampMs);
+}
+
+export function formatUpcomingCountdown(msUntilStart: number): string {
+  if (!Number.isFinite(msUntilStart) || msUntilStart <= 0) {
+    return '即将开打';
+  }
+  const totalMins = Math.ceil(msUntilStart / 60_000);
+  if (totalMins <= 1) {
+    return '1分钟内开打';
+  }
+  if (totalMins < 60) {
+    return `${totalMins}分钟后开打`;
+  }
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  if (mins === 0) {
+    return `${hours}小时后开打`;
+  }
+  return `${hours}小时${mins}分后开打`;
+}
+
+export function getRoomMinutesUntilExpiry(
+  room: Pick<MatchRoom, 'scheduledAt' | 'createdAt'>,
+  now: Date = new Date(),
+): number | null {
+  const startMs = getRoomStartTimestampMs(room);
+  const expireAtMs = startMs + ROOM_EXPIRE_AFTER_MS;
+  const remainingMs = expireAtMs - now.getTime();
+  if (remainingMs <= 0 || remainingMs > ROOM_EXPIRY_WARNING_WINDOW_MS) {
+    return null;
+  }
+  return Math.max(1, Math.ceil(remainingMs / 60_000));
+}
+
+export function isRoomExpired(
+  room: Pick<MatchRoom, 'scheduledAt' | 'createdAt'>,
+  now: Date = new Date(),
+): boolean {
+  const startMs = getRoomStartTimestampMs(room);
+  return now.getTime() >= startMs + ROOM_EXPIRE_AFTER_MS;
+}
+
+export function pruneExpiredRooms(
+  rooms: MatchRoom[],
+  now: Date = new Date(),
+): { activeRooms: MatchRoom[]; removedCount: number } {
+  const activeRooms = rooms.filter((room) => !isRoomExpired(room, now));
+  return {
+    activeRooms,
+    removedCount: rooms.length - activeRooms.length,
+  };
+}
+
+export interface ParsedRoomInviteLink {
+  roomId: string;
+  team: RoomTeamSlot;
+  inviteId?: string;
+  inviteeAccount?: string;
+}
+
+export function buildRoomInviteLink(
+  baseUrl: string,
+  params: {
+    roomId: string;
+    team: RoomTeamSlot;
+    inviteId?: string;
+    inviteeAccount?: string;
+  },
+): string {
+  const cleanBase = baseUrl.split('?')[0].split('#')[0];
+  const search = new URLSearchParams();
+  search.set('inviteRoom', params.roomId);
+  search.set('team', params.team);
+  if (params.inviteId) {
+    search.set('inviteId', params.inviteId);
+  }
+  if (params.inviteeAccount) {
+    search.set('invitee', params.inviteeAccount);
+  }
+  return `${cleanBase}?${search.toString()}`;
+}
+
+export function parseRoomInviteSearch(search: string): ParsedRoomInviteLink | null {
+  const query = new URLSearchParams(search);
+  const roomId = (query.get('inviteRoom') ?? '').trim();
+  const teamRaw = (query.get('team') ?? '').trim();
+  if (!roomId || (teamRaw !== 'red' && teamRaw !== 'blue' && teamRaw !== 'bench')) {
+    return null;
+  }
+  const inviteId = (query.get('inviteId') ?? '').trim() || undefined;
+  const inviteeAccount = (query.get('invitee') ?? '').trim() || undefined;
+  return {
+    roomId,
+    team: teamRaw,
+    inviteId,
+    inviteeAccount,
+  };
+}
+
+export const ONLINE_PRESENCE_TTL_MS = 25_000;
+
+export function pruneAndCountOnlinePresence(
+  activeEntries: Map<string, number>,
+  nowMs: number = Date.now(),
+  ttlMs: number = ONLINE_PRESENCE_TTL_MS,
+): number {
+  for (const [key, lastSeenMs] of activeEntries.entries()) {
+    if (nowMs - lastSeenMs > ttlMs) {
+      activeEntries.delete(key);
+    }
+  }
+  return activeEntries.size;
 }

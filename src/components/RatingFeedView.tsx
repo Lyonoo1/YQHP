@@ -5,7 +5,7 @@ import type { PlayerSummary } from '../shared/types';
 import { PlayerAvatar } from './PlayerAvatar';
 import { StarDisplay } from './StarRating';
 
-const COURT_BANNER_URL = `${import.meta.env.BASE_URL}src/assets/images/park_court_banner_1795745585101.jpg`;
+const COURT_BANNER_URL = `${import.meta.env.BASE_URL}src/assets/images/nba_finals_arena_banner_1795752012511.jpg`;
 
 interface RatingFeedViewProps {
   players: PlayerSummary[];
@@ -52,24 +52,24 @@ export const RatingFeedView: React.FC<RatingFeedViewProps> = ({
 
   return (
     <div className="pb-4">
-      {/* Compact Dusk Park Court Hero Strip */}
-      <section className="relative h-36 bg-[#181B20] overflow-hidden">
+      {/* NBA Finals Arena Hero Strip */}
+      <section className="relative h-40 bg-[#141518] overflow-hidden">
         {!bannerFailed && (
           <img
             src={COURT_BANNER_URL}
-            alt="园区露天篮球场夜景"
+            alt="NBA总决赛氛围篮球场馆"
             referrerPolicy="no-referrer"
             onError={() => setBannerFailed(true)}
-            className="w-full h-full object-cover object-center opacity-85"
+            className="w-full h-full object-cover object-center opacity-90"
           />
         )}
         <div
-          className="absolute inset-0 bg-gradient-to-b from-[#111317]/75 via-[#111317]/40 to-[#111317]/95"
+          className="absolute inset-0 bg-gradient-to-b from-[#111317]/80 via-[#111317]/35 to-[#111317]/95"
           aria-hidden="true"
         />
         <div className="absolute inset-0 px-4 py-3.5 flex flex-col justify-between text-white">
-          <div className="flex items-center justify-between text-[11px] text-white/80">
-            <span className="tabular-nums">{currentDate} 园区球场评分</span>
+          <div className="flex items-center justify-between text-[11px] text-white/85">
+            <span className="tabular-nums font-medium">{currentDate} 园区总决赛级评分</span>
             <span className="tabular-nums">0点清零倒计时 {countdownText}</span>
           </div>
 
@@ -78,7 +78,7 @@ export const RatingFeedView: React.FC<RatingFeedViewProps> = ({
               <h1 className="text-xl font-bold tracking-tight leading-tight">
                 今日球手赛后打分
               </h1>
-              <p className="text-xs text-white/80 mt-1 tabular-nums">
+              <p className="text-xs text-white/85 mt-1 tabular-nums">
                 {players.length} 位注册球手 · {totalRatingsToday} 次打分 · {totalCommentsToday} 条互动
               </p>
             </div>
@@ -101,7 +101,7 @@ export const RatingFeedView: React.FC<RatingFeedViewProps> = ({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索球手昵称或账号（如 科比 / YY08）"
+            placeholder="搜索球手昵称或球号（如 科比 / 09）"
             className="w-full h-11 pl-10 pr-10 rounded-xl bg-white border border-[#E6E8EC] text-sm text-[#141518] placeholder:text-[#9CA3AF] focus:outline-none focus:border-[#C60100]"
           />
           {query && (
@@ -142,15 +142,13 @@ export const RatingFeedView: React.FC<RatingFeedViewProps> = ({
                   <PlayerAvatar
                     nickname={player.nickname}
                     jerseyNumber={player.jerseyNumber}
+                    avatarBg={player.avatarBg}
                     size="md"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-[15px] font-bold text-[#141518] truncate">
                         {player.nickname}
-                      </span>
-                      <span className="text-[11px] text-[#9CA3AF] font-score shrink-0">
-                        {player.account}
                       </span>
                     </div>
                     <p className="text-xs text-[#6B7280] mt-0.5 tabular-nums truncate">

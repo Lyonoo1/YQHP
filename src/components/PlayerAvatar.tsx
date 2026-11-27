@@ -1,6 +1,22 @@
 import React from 'react';
+import { formatJerseyNumber } from '../shared/scoring';
 
-const JERSEY_PALETTES = [
+export const AVATAR_BG_CLASS_MAP: Record<string, string> = {
+  '#1D2432': 'bg-[#1D2432] text-white',
+  '#C60100': 'bg-[#C60100] text-white',
+  '#8B1A1A': 'bg-[#8B1A1A] text-white',
+  '#1E3A5F': 'bg-[#1E3A5F] text-white',
+  '#2C3E2D': 'bg-[#2C3E2D] text-white',
+  '#4A2545': 'bg-[#4A2545] text-white',
+  '#7C3A14': 'bg-[#7C3A14] text-white',
+  '#1F4E5F': 'bg-[#1F4E5F] text-white',
+  '#332E2B': 'bg-[#332E2B] text-white',
+  '#0F766E': 'bg-[#0F766E] text-white',
+  '#B45309': 'bg-[#B45309] text-white',
+  '#312E81': 'bg-[#312E81] text-white',
+};
+
+const DEFAULT_JERSEY_PALETTES = [
   'bg-[#1D2432] text-white',
   'bg-[#8B1A1A] text-white',
   'bg-[#1E3A5F] text-white',
@@ -16,21 +32,42 @@ function getPaletteIndex(seed: string): number {
   for (let i = 0; i < seed.length; i++) {
     hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   }
-  return hash % JERSEY_PALETTES.length;
+  return hash % DEFAULT_JERSEY_PALETTES.length;
+}
+
+export function getDefaultAvatarBgHex(nickname: string, jerseyNumber: string): string {
+  const displayJersey = formatJerseyNumber(jerseyNumber);
+  const defaultHexes = [
+    '#1D2432',
+    '#8B1A1A',
+    '#1E3A5F',
+    '#2C3E2D',
+    '#4A2545',
+    '#7C3A14',
+    '#1F4E5F',
+    '#332E2B',
+  ];
+  return defaultHexes[getPaletteIndex(nickname + displayJersey)];
 }
 
 interface PlayerAvatarProps {
   nickname: string;
   jerseyNumber: string;
+  avatarBg?: string;
   size?: 'sm' | 'md' | 'lg';
 }
 
 export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
   nickname,
   jerseyNumber,
+  avatarBg,
   size = 'md',
 }) => {
-  const palette = JERSEY_PALETTES[getPaletteIndex(nickname + jerseyNumber)];
+  const displayJersey = formatJerseyNumber(jerseyNumber);
+  const normalizedBg = avatarBg?.trim().toUpperCase();
+  const palette =
+    (normalizedBg && AVATAR_BG_CLASS_MAP[normalizedBg]) ||
+    DEFAULT_JERSEY_PALETTES[getPaletteIndex(nickname + displayJersey)];
   const dims =
     size === 'sm'
       ? 'w-9 h-9 rounded-lg text-sm'
@@ -46,7 +83,7 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
       aria-hidden="true"
     >
       <span className="font-score font-extrabold leading-none tracking-tight">
-        {jerseyNumber}
+        {displayJersey}
       </span>
       {size !== 'sm' && (
         <span className="text-[9px] leading-none opacity-80 mt-0.5 font-medium">

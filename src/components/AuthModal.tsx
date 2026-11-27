@@ -190,6 +190,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       <PlayerAvatar
                         nickname={player.nickname}
                         jerseyNumber={player.jerseyNumber}
+                        avatarBg={player.avatarBg}
                         size="sm"
                       />
                       <div className="min-w-0 flex-1">

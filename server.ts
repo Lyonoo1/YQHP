@@ -8,6 +8,7 @@ import type { PublicPlayer, RoomMode, RoomStatus, RoomTeamSlot } from './src/sha
 interface AuthedRequest extends Request {
   user?: PublicPlayer | null;
   authToken?: string;
+  clientId?: string;
 }
 
 function extractBearerToken(req: Request): string | undefined {
@@ -16,10 +17,27 @@ function extractBearerToken(req: Request): string | undefined {
   return header.slice(7).trim() || undefined;
 }
 
+function extractClientId(req: Request): string | undefined {
+  const rawHeader = req.headers['x-client-id'];
+  const headerVal = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+  const queryVal = typeof req.query.clientId === 'string' ? req.query.clientId : undefined;
+  const bodyVal =
+    req.body && typeof req.body.clientId === 'string' ? req.body.clientId : undefined;
+  const candidate = (headerVal ?? bodyVal ?? queryVal ?? '').trim();
+  if (/^[A-Za-z0-9_-]{6,64}$/.test(candidate)) {
+    return candidate;
+  }
+  return undefined;
+}
+
 function attachUser(req: AuthedRequest, _res: Response, next: NextFunction): void {
   const token = extractBearerToken(req);
   req.authToken = token;
   req.user = store.getUserByToken(token);
+  req.clientId = extractClientId(req) ?? (req.ip ? `ip_${req.ip}` : undefined);
+  if (req.path !== '/presence/leave') {
+    store.touchPresence(req.user?.id, req.clientId);
+  }
   next();
 }
 
@@ -52,6 +70,12 @@ async function startServer() {
     res.json(store.getBootstrap(req.user ?? null));
   });
 
+  // Presence leave notification when closing tab
+  router.post('/api/presence/leave', (req: AuthedRequest, res: Response) => {
+    const onlineCount = store.leavePresence(req.user?.id, req.clientId);
+    res.json({ ok: true, onlineCount });
+  });
+
   // Auth routes
   router.post('/api/auth/login', (req: AuthedRequest, res: Response) => {
     const { account, password } = req.body ?? {};
@@ -60,6 +84,7 @@ async function startServer() {
       res.status(400).json({ error: result.error });
       return;
     }
+    store.touchPresence(result.user.id, req.clientId);
     res.json({ token: result.token, user: result.user });
   });
 
@@ -70,6 +95,7 @@ async function startServer() {
       res.status(404).json({ error: result.error });
       return;
     }
+    store.touchPresence(result.user.id, req.clientId);
     res.json({ token: result.token, user: result.user });
   });
 
@@ -84,22 +110,43 @@ async function startServer() {
       res.status(400).json({ error: result.error });
       return;
     }
+    store.touchPresence(result.user.id, req.clientId);
     res.status(201).json({ token: result.token, user: result.user });
   });
 
   router.post('/api/auth/logout', (req: AuthedRequest, res: Response) => {
+    if (req.user) {
+      store.leavePresence(req.user.id, undefined);
+      store.touchPresence(null, req.clientId);
+    }
     store.deleteSession(req.authToken);
     res.json({ ok: true });
   });
 
+  router.patch('/api/auth/profile', requireAuth, (req: AuthedRequest, res: Response) => {
+    const { account, password, jerseyNumber, avatarBg } = req.body ?? {};
+    const result = store.updateProfile(req.user!, {
+      account: typeof account === 'string' ? account : undefined,
+      password: typeof password === 'string' ? password : undefined,
+      jerseyNumber: typeof jerseyNumber === 'string' ? jerseyNumber : undefined,
+      avatarBg: typeof avatarBg === 'string' ? avatarBg : undefined,
+    });
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json(store.getBootstrap(result.user));
+  });
+
   // Rating & comments routes (Auth required)
   router.post('/api/players/:playerId/rate', requireAuth, (req: AuthedRequest, res: Response) => {
-    const { stars, comment } = req.body ?? {};
+    const { stars, comment, anonymous } = req.body ?? {};
     const result = store.ratePlayer(
       req.user!,
       String(req.params.playerId),
       Number(stars),
       typeof comment === 'string' ? comment : undefined,
+      Boolean(anonymous),
     );
     if (!result.ok) {
       res.status(400).json({ error: result.error });
@@ -109,8 +156,13 @@ async function startServer() {
   });
 
   router.post('/api/players/:playerId/comments', requireAuth, (req: AuthedRequest, res: Response) => {
-    const { content } = req.body ?? {};
-    const result = store.addComment(req.user!, String(req.params.playerId), String(content ?? ''));
+    const { content, anonymous } = req.body ?? {};
+    const result = store.addComment(
+      req.user!,
+      String(req.params.playerId),
+      String(content ?? ''),
+      Boolean(anonymous),
+    );
     if (!result.ok) {
       res.status(400).json({ error: result.error });
       return;
@@ -128,13 +180,14 @@ async function startServer() {
   });
 
   router.post('/api/comments/:commentId/replies', requireAuth, (req: AuthedRequest, res: Response) => {
-    const { content, replyToUserId, replyToNickname } = req.body ?? {};
+    const { content, replyToUserId, replyToNickname, anonymous } = req.body ?? {};
     const result = store.addReply(
       req.user!,
       String(req.params.commentId),
       String(content ?? ''),
       typeof replyToUserId === 'string' ? replyToUserId : undefined,
       typeof replyToNickname === 'string' ? replyToNickname : undefined,
+      Boolean(anonymous),
     );
     if (!result.ok) {
       res.status(400).json({ error: result.error });
@@ -154,12 +207,13 @@ async function startServer() {
 
   // LoL-style Matchup Room routes (Auth required)
   router.post('/api/rooms', requireAuth, (req: AuthedRequest, res: Response) => {
-    const { title, courtNote, mode, benchLimit } = req.body ?? {};
+    const { title, courtNote, mode, benchLimit, scheduledAt } = req.body ?? {};
     const result = store.createRoom(req.user!, {
       title: String(title ?? ''),
       courtNote: typeof courtNote === 'string' ? courtNote : undefined,
       mode: mode as RoomMode,
       benchLimit: typeof benchLimit === 'number' ? benchLimit : Number(benchLimit ?? 0),
+      scheduledAt: typeof scheduledAt === 'string' ? scheduledAt : undefined,
     });
     if (!result.ok) {
       res.status(400).json({ error: result.error });
@@ -216,6 +270,65 @@ async function startServer() {
     }
     res.json(store.getBootstrap(req.user!));
   });
+
+  router.post('/api/rooms/:roomId/invite', requireAuth, (req: AuthedRequest, res: Response) => {
+    const { targetPlayerId, team, mode } = req.body ?? {};
+    if (mode === 'direct') {
+      res.status(400).json({ error: '不允许直接拉人进房，请发送邀请由本人确认加入' });
+      return;
+    }
+    const result = store.inviteToRoom(
+      req.user!,
+      String(req.params.roomId),
+      String(targetPlayerId ?? ''),
+      team as RoomTeamSlot,
+    );
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.status(201).json(store.getBootstrap(req.user!));
+  });
+
+  router.post(
+    '/api/rooms/:roomId/invites/:inviteId/respond',
+    requireAuth,
+    (req: AuthedRequest, res: Response) => {
+      const { action } = req.body ?? {};
+      if (action !== 'accept' && action !== 'decline') {
+        res.status(400).json({ error: '操作类型无效' });
+        return;
+      }
+      const result = store.respondToRoomInvite(
+        req.user!,
+        String(req.params.roomId),
+        String(req.params.inviteId),
+        action,
+      );
+      if (!result.ok) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json(store.getBootstrap(req.user!));
+    },
+  );
+
+  router.delete(
+    '/api/rooms/:roomId/invites/:inviteId',
+    requireAuth,
+    (req: AuthedRequest, res: Response) => {
+      const result = store.cancelRoomInvite(
+        req.user!,
+        String(req.params.roomId),
+        String(req.params.inviteId),
+      );
+      if (!result.ok) {
+        res.status(403).json({ error: result.error });
+        return;
+      }
+      res.json(store.getBootstrap(req.user!));
+    },
+  );
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

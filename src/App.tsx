@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Flame, Star, Swords, User } from 'lucide-react';
-import { api, setAuthToken } from './lib/api';
+import { api, sendPresenceLeave, setAuthToken } from './lib/api';
+import { parseRoomInviteSearch, type ParsedRoomInviteLink } from './shared/scoring';
 import type { BootstrapResponse, PublicPlayer } from './shared/types';
 import { AuthModal } from './components/AuthModal';
+import { InviteLinkDialog } from './components/InviteLinkDialog';
 import { LeaderboardView } from './components/LeaderboardView';
 import { PlayerDetailSheet } from './components/PlayerDetailSheet';
 import { ProfileView } from './components/ProfileView';
@@ -22,7 +24,14 @@ function formatCountdown(ms: number): string {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabKey>('ratings');
+  const [pendingLinkInvite, setPendingLinkInvite] = useState<ParsedRoomInviteLink | null>(() =>
+    typeof window !== 'undefined' ? parseRoomInviteSearch(window.location.search) : null,
+  );
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    typeof window !== 'undefined' && parseRoomInviteSearch(window.location.search)
+      ? 'rooms'
+      : 'ratings',
+  );
   const [data, setData] = useState<BootstrapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +42,13 @@ export default function App() {
   const [msLeft, setMsLeft] = useState<number>(0);
   const [emblemFailed, setEmblemFailed] = useState(false);
   const toastTimerRef = useRef<number | null>(null);
+
+  const dismissInviteLink = useCallback(() => {
+    setPendingLinkInvite(null);
+    if (typeof window !== 'undefined' && window.location.search) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -64,7 +80,12 @@ export default function App() {
     const poll = window.setInterval(() => {
       fetchBootstrap(true);
     }, 8000);
-    return () => window.clearInterval(poll);
+    const handlePageHide = () => sendPresenceLeave();
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.clearInterval(poll);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
   }, [fetchBootstrap]);
 
   // Live 00:00 countdown ticker
@@ -116,6 +137,18 @@ export default function App() {
     return data.players.find((p) => p.id === selectedPlayerId) ?? null;
   }, [selectedPlayerId, data]);
 
+  const incomingInviteCount = useMemo(() => {
+    if (!data?.currentUser) return 0;
+    const myId = data.currentUser.id;
+    let count = 0;
+    for (const room of data.rooms) {
+      for (const inv of room.invites ?? []) {
+        if (inv.inviteeId === myId) count += 1;
+      }
+    }
+    return count;
+  }, [data]);
+
   const countdownText = formatCountdown(msLeft);
 
   return (
@@ -145,12 +178,24 @@ export default function App() {
             <span className="text-[17px] font-bold tracking-tight">园区虎扑</span>
           </button>
 
-          <div className="flex items-center shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0">
+            {data && (
+              <span
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/95 tabular-nums whitespace-nowrap"
+                aria-label={`当前 ${data.onlineCount} 人在线`}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-[#4ADE80] shrink-0"
+                  aria-hidden="true"
+                />
+                <span>{data.onlineCount}人在线</span>
+              </span>
+            )}
             {data?.currentUser ? (
               <button
                 type="button"
                 onClick={() => setActiveTab('profile')}
-                className="h-8 px-3 rounded-lg bg-white/15 hover:bg-white/25 text-xs font-semibold whitespace-nowrap transition-colors"
+                className="h-8 px-3 max-w-[108px] truncate rounded-lg bg-white/15 hover:bg-white/25 text-xs font-semibold whitespace-nowrap transition-colors"
               >
                 {data.currentUser.nickname}
               </button>
@@ -209,6 +254,7 @@ export default function App() {
               {activeTab === 'rooms' && (
                 <RoomsView
                   rooms={data.rooms}
+                  players={data.players}
                   currentUser={data.currentUser}
                   onRequireAuth={() => openAuth('login')}
                   onDataUpdate={handleDataUpdate}
@@ -225,6 +271,8 @@ export default function App() {
                   onOpenAuth={(m) => openAuth(m)}
                   onLogout={handleLogout}
                   onSelectPlayer={(id) => setSelectedPlayerId(id)}
+                  onDataUpdate={handleDataUpdate}
+                  onToast={showToast}
                 />
               )}
             </>
@@ -271,11 +319,21 @@ export default function App() {
               type="button"
               onClick={() => setActiveTab('rooms')}
               aria-current={activeTab === 'rooms' ? 'page' : undefined}
-              className={`flex flex-col items-center justify-center gap-0.5 transition-colors ${
+              className={`relative flex flex-col items-center justify-center gap-0.5 transition-colors ${
                 activeTab === 'rooms' ? 'text-[#C60100]' : 'text-[#6B7280]'
               }`}
             >
-              <Swords className="w-5 h-5" aria-hidden="true" />
+              <span className="relative inline-flex">
+                <Swords className="w-5 h-5" aria-hidden="true" />
+                {incomingInviteCount > 0 && (
+                  <span
+                    aria-label={`${incomingInviteCount}条约球邀请`}
+                    className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-[#C60100] text-white text-[10px] font-bold leading-4 text-center tabular-nums"
+                  >
+                    {incomingInviteCount}
+                  </span>
+                )}
+              </span>
               <span className="text-[11px] font-semibold leading-none">约球房</span>
             </button>
 
@@ -314,6 +372,20 @@ export default function App() {
           onClose={() => setAuthModalOpen(false)}
           onSuccess={handleAuthSuccess}
         />
+
+        {/* Shared Invite Link Landing Dialog */}
+        {pendingLinkInvite && data && (
+          <InviteLinkDialog
+            inviteLink={pendingLinkInvite}
+            rooms={data.rooms}
+            players={data.players}
+            currentUser={data.currentUser}
+            onClose={dismissInviteLink}
+            onDataUpdate={handleDataUpdate}
+            onRequireRegister={() => openAuth('register')}
+            onToast={showToast}
+          />
+        )}
 
         {/* Floating Toast Feedback */}
         {toast && (

@@ -2,5 +2,7 @@
   "name": "园区虎扑",
   "description": "园区篮球移动端打分、热评互动、实时热度排行榜与LOL式自定义约球房间系统。",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

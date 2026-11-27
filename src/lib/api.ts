@@ -6,8 +6,9 @@ import type {
   RoomTeamSlot,
 } from '../shared/types';
 
-// Keep auth token strictly in JS/React memory (never localStorage/sessionStorage)
+// Keep auth token and tab clientId strictly in JS/React memory (never localStorage/sessionStorage)
 let inMemoryToken: string | null = null;
+const CLIENT_ID = `cli_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
 
 export function setAuthToken(token: string | null): void {
   inMemoryToken = token;
@@ -19,10 +20,32 @@ export function getAuthToken(): string | null {
 
 const BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, '');
 
+export function sendPresenceLeave(): void {
+  const url = `${BASE_PATH}/api/presence/leave?clientId=${encodeURIComponent(CLIENT_ID)}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Client-Id': CLIENT_ID,
+  };
+  if (inMemoryToken) {
+    headers.Authorization = `Bearer ${inMemoryToken}`;
+  }
+  try {
+    void fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ clientId: CLIENT_ID }),
+      keepalive: true,
+    });
+  } catch {
+    // Ignore errors during page unload
+  }
+}
+
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const fullUrl = url.startsWith('/') ? `${BASE_PATH}${url}` : url;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Client-Id': CLIENT_ID,
     ...((options.headers as Record<string, string>) ?? {}),
   };
   if (inMemoryToken) {
@@ -75,17 +98,38 @@ export const api = {
     return request('/api/auth/logout', { method: 'POST' });
   },
 
-  ratePlayer(playerId: string, stars: number, comment?: string): Promise<BootstrapResponse> {
-    return request(`/api/players/${encodeURIComponent(playerId)}/rate`, {
-      method: 'POST',
-      body: JSON.stringify({ stars, comment }),
+  updateProfile(payload: {
+    account?: string;
+    password?: string;
+    jerseyNumber?: string;
+    avatarBg?: string;
+  }): Promise<BootstrapResponse> {
+    return request('/api/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     });
   },
 
-  addComment(playerId: string, content: string): Promise<BootstrapResponse> {
+  ratePlayer(
+    playerId: string,
+    stars: number,
+    comment?: string,
+    anonymous = false,
+  ): Promise<BootstrapResponse> {
+    return request(`/api/players/${encodeURIComponent(playerId)}/rate`, {
+      method: 'POST',
+      body: JSON.stringify({ stars, comment, anonymous }),
+    });
+  },
+
+  addComment(
+    playerId: string,
+    content: string,
+    anonymous = false,
+  ): Promise<BootstrapResponse> {
     return request(`/api/players/${encodeURIComponent(playerId)}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, anonymous }),
     });
   },
 
@@ -100,10 +144,11 @@ export const api = {
     content: string,
     replyToUserId?: string,
     replyToNickname?: string,
+    anonymous = false,
   ): Promise<BootstrapResponse> {
     return request(`/api/comments/${encodeURIComponent(commentId)}/replies`, {
       method: 'POST',
-      body: JSON.stringify({ content, replyToUserId, replyToNickname }),
+      body: JSON.stringify({ content, replyToUserId, replyToNickname, anonymous }),
     });
   },
 
@@ -118,6 +163,7 @@ export const api = {
     courtNote: string;
     mode: RoomMode;
     benchLimit: number;
+    scheduledAt?: string;
   }): Promise<BootstrapResponse> {
     return request('/api/rooms', {
       method: 'POST',
@@ -149,5 +195,39 @@ export const api = {
     return request(`/api/rooms/${encodeURIComponent(roomId)}`, {
       method: 'DELETE',
     });
+  },
+
+  inviteToRoom(
+    roomId: string,
+    targetPlayerId: string,
+    team: RoomTeamSlot,
+  ): Promise<BootstrapResponse> {
+    return request(`/api/rooms/${encodeURIComponent(roomId)}/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ targetPlayerId, team }),
+    });
+  },
+
+  respondToRoomInvite(
+    roomId: string,
+    inviteId: string,
+    action: 'accept' | 'decline',
+  ): Promise<BootstrapResponse> {
+    return request(
+      `/api/rooms/${encodeURIComponent(roomId)}/invites/${encodeURIComponent(inviteId)}/respond`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ action }),
+      },
+    );
+  },
+
+  cancelRoomInvite(roomId: string, inviteId: string): Promise<BootstrapResponse> {
+    return request(
+      `/api/rooms/${encodeURIComponent(roomId)}/invites/${encodeURIComponent(inviteId)}`,
+      {
+        method: 'DELETE',
+      },
+    );
   },
 };

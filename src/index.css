@@ -43,3 +43,53 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+@keyframes upcomingBreathRed {
+  0%,
+  100% {
+    border-color: rgba(252, 165, 165, 0.42);
+    box-shadow:
+      0 0 0 1px rgba(248, 113, 113, 0.16),
+      0 0 8px rgba(248, 113, 113, 0.18);
+  }
+  50% {
+    border-color: rgba(252, 165, 165, 0.95);
+    box-shadow:
+      0 0 0 1.5px rgba(248, 113, 113, 0.42),
+      0 0 16px rgba(239, 68, 68, 0.42);
+  }
+}
+
+@keyframes upcomingBreathGold {
+  0%,
+  100% {
+    border-color: rgba(251, 191, 36, 0.55);
+    box-shadow:
+      0 0 0 1px rgba(251, 191, 36, 0.25),
+      0 0 10px rgba(245, 158, 11, 0.28);
+  }
+  50% {
+    border-color: rgba(253, 224, 71, 1);
+    box-shadow:
+      0 0 0 2px rgba(253, 224, 71, 0.55),
+      0 0 20px rgba(245, 158, 11, 0.62);
+  }
+}
+
+.upcoming-breath-red {
+  border-color: rgba(252, 165, 165, 0.72);
+  animation: upcomingBreathRed 2.4s ease-in-out infinite;
+}
+
+.upcoming-breath-gold {
+  border-color: rgba(253, 224, 71, 0.92);
+  animation: upcomingBreathGold 1.85s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upcoming-breath-red,
+  .upcoming-breath-gold {
+    animation: none;
+  }
+}
+
