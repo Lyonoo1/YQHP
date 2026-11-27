@@ -72,7 +72,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               className="min-h-[44px] rounded-xl bg-[#C60100] text-white text-sm font-semibold flex items-center justify-center gap-1.5"
             >
               <LogIn className="w-4 h-4" />
-              <span>点选登录</span>
+              <span>账号登录</span>
             </button>
             <button
               type="button"
@@ -85,7 +85,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
 
           <p className="text-[11px] text-[#6B7280] mt-4">
-            点击已注册球手（YY01 ~ YY18 等）即可一键登录，无需输入密码
+            请使用本人账号与密码登录；如尚未修改初始密码，登录后请及时在「编辑」中设置专属密码
           </p>
         </section>
       ) : (

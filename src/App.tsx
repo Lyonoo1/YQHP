@@ -159,71 +159,74 @@ export default function App() {
   const countdownText = formatCountdown(msLeft);
 
   return (
-    <div className="h-dvh w-full bg-white sm:bg-[#E9ECEF] flex justify-center overflow-hidden">
+    <div className="h-full w-full bg-white sm:bg-[#E9ECEF] flex justify-center">
+      {/* Fixed Top Bar anchored at top:0 (triggers WebKit fixedContainerEdges to suppress iOS 26/27 standalone top progressive blur) */}
+      <header className="fixed top-0 inset-x-0 mx-auto w-full max-w-[480px] z-30 bg-[#C60100] text-white pt-safe">
+        <div className="h-[52px] px-4 flex items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('ratings')}
+            className="flex items-center gap-2 min-h-[44px] -ml-1 whitespace-nowrap shrink-0"
+          >
+            {!emblemFailed ? (
+              <img
+                src={EMBLEM_URL}
+                alt=""
+                referrerPolicy="no-referrer"
+                onError={() => setEmblemFailed(true)}
+                className="w-7 h-7 rounded-lg object-cover border border-white/20"
+              />
+            ) : (
+              <span className="w-7 h-7 rounded-lg bg-[#141518] font-score text-sm font-extrabold flex items-center justify-center">
+                HP
+              </span>
+            )}
+            <span className="text-[17px] font-bold tracking-tight">园区虎扑</span>
+          </button>
+
+          <div className="flex items-center gap-2.5 shrink-0">
+            {data && (
+              <span
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/95 tabular-nums whitespace-nowrap"
+                aria-label={`当前 ${data.onlineCount} 人在线`}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-[#4ADE80] shrink-0"
+                  aria-hidden="true"
+                />
+                <span>{data.onlineCount}人在线</span>
+              </span>
+            )}
+            {data?.currentUser ? (
+              <button
+                type="button"
+                onClick={() => setActiveTab('profile')}
+                className="h-8 px-3 max-w-[108px] truncate rounded-lg bg-white/15 hover:bg-white/25 text-xs font-semibold whitespace-nowrap transition-colors"
+              >
+                {data.currentUser.nickname}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openAuth('login')}
+                className="h-8 px-3 rounded-lg bg-white text-[#C60100] text-xs font-bold whitespace-nowrap active:scale-95 transition-transform"
+              >
+                登录 / 注册
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
       {/* Mobile-First App Shell (Edge-to-Edge on all phones, clean centered phone viewport on desktop) */}
       <div className="w-full max-w-[480px] h-full bg-[#F4F5F7] flex flex-col relative shadow-xl overflow-hidden">
-        {/* Compact Top Bar (52px content + iOS standalone blur clearance) */}
-        <header className="z-30 bg-[#C60100] text-white standalone-top-cushion shrink-0">
-          <div className="h-[52px] px-4 flex items-center justify-between gap-4">
-            <button
-              type="button"
-              onClick={() => setActiveTab('ratings')}
-              className="flex items-center gap-2 min-h-[44px] -ml-1 whitespace-nowrap shrink-0"
-            >
-              {!emblemFailed ? (
-                <img
-                  src={EMBLEM_URL}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  onError={() => setEmblemFailed(true)}
-                  className="w-7 h-7 rounded-lg object-cover border border-white/20"
-                />
-              ) : (
-                <span className="w-7 h-7 rounded-lg bg-[#141518] font-score text-sm font-extrabold flex items-center justify-center">
-                  HP
-                </span>
-              )}
-              <span className="text-[17px] font-bold tracking-tight">园区虎扑</span>
-            </button>
-
-            <div className="flex items-center gap-2.5 shrink-0">
-              {data && (
-                <span
-                  className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/95 tabular-nums whitespace-nowrap"
-                  aria-label={`当前 ${data.onlineCount} 人在线`}
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full bg-[#4ADE80] shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span>{data.onlineCount}人在线</span>
-                </span>
-              )}
-              {data?.currentUser ? (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('profile')}
-                  className="h-8 px-3 max-w-[108px] truncate rounded-lg bg-white/15 hover:bg-white/25 text-xs font-semibold whitespace-nowrap transition-colors"
-                >
-                  {data.currentUser.nickname}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => openAuth('login')}
-                  className="h-8 px-3 rounded-lg bg-white text-[#C60100] text-xs font-bold whitespace-nowrap active:scale-95 transition-transform"
-                >
-                  登录 / 注册
-                </button>
-              )}
-            </div>
-          </div>
-        </header>
+        {/* In-flow spacer matching fixed header height so scroll container & scrollbar stay cleanly below header */}
+        <div className="header-spacer-main shrink-0" aria-hidden="true" />
 
         {/* Main Scrollable Viewport (scrollbar strictly contained between header & bottom nav) */}
         <main
           ref={mainRef}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain app-scroll pb-4"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain app-scroll scroll-pt-2 scroll-pb-4 pb-4"
         >
           {loading ? (
             <div className="px-4 py-12 space-y-3">
@@ -381,7 +384,6 @@ export default function App() {
         <AuthModal
           open={authModalOpen}
           initialMode={authInitialMode}
-          players={data?.players ?? []}
           onClose={() => setAuthModalOpen(false)}
           onSuccess={handleAuthSuccess}
         />

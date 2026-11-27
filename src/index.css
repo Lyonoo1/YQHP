@@ -40,18 +40,20 @@
   letter-spacing: -0.02em;
 }
 
-.standalone-top-cushion {
-  padding-top: 0px;
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
-@media (display-mode: standalone) {
-  .standalone-top-cushion {
-    padding-top: max(28px, calc(env(safe-area-inset-top, 0px) + 28px));
-  }
+.header-spacer-main {
+  height: calc(52px + env(safe-area-inset-top, 0px));
+}
+
+.header-spacer-detail {
+  height: calc(48px + env(safe-area-inset-top, 0px));
 }
 
 .pb-safe {
-  padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
 }
 
 .no-scrollbar::-webkit-scrollbar {

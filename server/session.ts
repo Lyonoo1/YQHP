@@ -9,6 +9,7 @@ export interface VerifiedSessionPayload {
   jti: string;
   iat: number;
   exp: number;
+  tv?: number;
 }
 
 const FALLBACK_SESSION_SECRET = crypto.randomBytes(32).toString('hex');
@@ -27,12 +28,14 @@ export function createSignedSessionToken(
   nowMs: number = Date.now(),
   secret: string = getSessionSecret(),
   ttlMs: number = SESSION_TTL_MS,
+  tokenVersion: number = 0,
 ): { token: string; payload: VerifiedSessionPayload } {
   const payload: VerifiedSessionPayload = {
     uid: userId,
     jti: crypto.randomBytes(12).toString('hex'),
     iat: nowMs,
     exp: nowMs + ttlMs,
+    tv: Number.isInteger(tokenVersion) && tokenVersion >= 0 ? tokenVersion : 0,
   };
   const payloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
   const sig = signPayload(payloadB64, secret);
@@ -75,6 +78,12 @@ export function verifySignedSessionToken(
     ) {
       return null;
     }
+    if (
+      parsed.tv !== undefined &&
+      (typeof parsed.tv !== 'number' || !Number.isInteger(parsed.tv) || parsed.tv < 0)
+    ) {
+      return null;
+    }
     if (nowMs >= parsed.exp) {
       return null;
     }
@@ -83,6 +92,7 @@ export function verifySignedSessionToken(
       jti: parsed.jti,
       iat: typeof parsed.iat === 'number' ? parsed.iat : 0,
       exp: parsed.exp,
+      tv: parsed.tv ?? 0,
     };
   } catch {
     return null;
@@ -168,5 +178,93 @@ export function isSameOriginOrCustomHeader(params: {
     return parsedOrigin.host.toLowerCase() === expectedHost;
   } catch {
     return false;
+  }
+}
+
+export interface LoginRateLimiterOptions {
+  maxAttempts?: number;
+  windowMs?: number;
+  lockoutMs?: number;
+}
+
+interface LoginAttemptRecord {
+  failures: number[];
+  lockedUntilMs: number;
+}
+
+export class LoginRateLimiter {
+  private readonly maxAttempts: number;
+  private readonly windowMs: number;
+  private readonly lockoutMs: number;
+  private readonly records = new Map<string, LoginAttemptRecord>();
+
+  constructor(options: LoginRateLimiterOptions = {}) {
+    this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 8));
+    this.windowMs = Math.max(1000, Math.floor(options.windowMs ?? 10 * 60 * 1000));
+    this.lockoutMs = Math.max(1000, Math.floor(options.lockoutMs ?? 5 * 60 * 1000));
+  }
+
+  public check(
+    key: string,
+    nowMs: number = Date.now(),
+  ): { allowed: true } | { allowed: false; retryAfterSeconds: number } {
+    const record = this.records.get(key);
+    if (!record) return { allowed: true };
+
+    if (record.lockedUntilMs > nowMs) {
+      return {
+        allowed: false,
+        retryAfterSeconds: Math.max(1, Math.ceil((record.lockedUntilMs - nowMs) / 1000)),
+      };
+    }
+
+    const cutoff = nowMs - this.windowMs;
+    record.failures = record.failures.filter((ts) => ts > cutoff);
+    if (record.failures.length === 0) {
+      this.records.delete(key);
+    }
+    return { allowed: true };
+  }
+
+  public recordFailure(
+    key: string,
+    nowMs: number = Date.now(),
+  ): { locked: boolean; remainingAttempts: number; retryAfterSeconds: number } {
+    const cutoff = nowMs - this.windowMs;
+    const existing = this.records.get(key);
+    const failures = existing ? existing.failures.filter((ts) => ts > cutoff) : [];
+    failures.push(nowMs);
+
+    if (failures.length >= this.maxAttempts) {
+      const lockedUntilMs = nowMs + this.lockoutMs;
+      this.records.set(key, { failures, lockedUntilMs });
+      return {
+        locked: true,
+        remainingAttempts: 0,
+        retryAfterSeconds: Math.max(1, Math.ceil(this.lockoutMs / 1000)),
+      };
+    }
+
+    this.records.set(key, { failures, lockedUntilMs: 0 });
+    return {
+      locked: false,
+      remainingAttempts: this.maxAttempts - failures.length,
+      retryAfterSeconds: 0,
+    };
+  }
+
+  public clear(key: string): void {
+    this.records.delete(key);
+  }
+
+  public prune(nowMs: number = Date.now()): void {
+    const cutoff = nowMs - this.windowMs;
+    for (const [key, record] of this.records.entries()) {
+      if (record.lockedUntilMs > nowMs) continue;
+      record.failures = record.failures.filter((ts) => ts > cutoff);
+      if (record.failures.length === 0) {
+        this.records.delete(key);
+      }
+    }
   }
 }

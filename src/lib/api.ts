@@ -80,13 +80,6 @@ export const api = {
     });
   },
 
-  quickLogin(playerIdOrAccount: string): Promise<{ token: string; user: PublicPlayer }> {
-    return request('/api/auth/quick-login', {
-      method: 'POST',
-      body: JSON.stringify({ playerId: playerIdOrAccount }),
-    });
-  },
-
   register(
     nickname: string,
     account: string,
@@ -102,17 +95,22 @@ export const api = {
     return request('/api/auth/logout', { method: 'POST' });
   },
 
-  updateProfile(payload: {
+  async updateProfile(payload: {
     nickname?: string;
     account?: string;
+    currentPassword?: string;
     password?: string;
     jerseyNumber?: string;
     avatarBg?: string;
   }): Promise<BootstrapResponse> {
-    return request('/api/auth/profile', {
+    const res = await request<BootstrapResponse & { token?: string }>('/api/auth/profile', {
       method: 'PATCH',
       body: JSON.stringify(payload),
     });
+    if (res.token) {
+      setAuthToken(res.token);
+    }
+    return res;
   },
 
   ratePlayer(

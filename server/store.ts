@@ -45,6 +45,7 @@ import type {
 interface StoredUser extends PublicPlayer {
   passwordSalt: string;
   passwordHash: string;
+  tokenVersion?: number;
 }
 
 interface DatabaseSchema {
@@ -61,7 +62,6 @@ const CURRENT_JERSEY_SEED_VERSION = 3;
 const DATA_DIR = process.env.DATA_DIR?.trim()
   ? path.resolve(process.env.DATA_DIR.trim())
   : path.resolve(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'park-hupu-db.json');
 
 function hashPassword(password: string, salt?: string): { salt: string; hash: string } {
   const actualSalt = salt ?? crypto.randomBytes(16).toString('hex');
@@ -363,20 +363,26 @@ function createInitialDatabase(): DatabaseSchema {
   };
 }
 
-class ParkHupuStore {
+export class ParkHupuStore {
+  private readonly dataDir: string;
+  private readonly dbFile: string;
   private db: DatabaseSchema;
   private revokedSessions = new Map<string, number>(); // jti -> expMs
   private onlinePresence = new Map<string, number>(); // presenceKey -> lastSeenMs
 
-  constructor() {
+  constructor(options?: { dataDir?: string; enableBackgroundTimer?: boolean }) {
+    this.dataDir = options?.dataDir ? path.resolve(options.dataDir) : DATA_DIR;
+    this.dbFile = path.join(this.dataDir, 'park-hupu-db.json');
     this.db = this.loadFromDisk();
     this.ensureDailyFreshness();
-    setInterval(() => {
-      this.ensureDailyFreshness();
-      const nowMs = Date.now();
-      pruneAndCountOnlinePresence(this.onlinePresence, nowMs);
-      this.pruneRevokedSessions(nowMs);
-    }, 30_000).unref();
+    if (options?.enableBackgroundTimer !== false) {
+      setInterval(() => {
+        this.ensureDailyFreshness();
+        const nowMs = Date.now();
+        pruneAndCountOnlinePresence(this.onlinePresence, nowMs);
+        this.pruneRevokedSessions(nowMs);
+      }, 30_000).unref();
+    }
   }
 
   private pruneRevokedSessions(nowMs: number = Date.now()): void {
@@ -484,8 +490,8 @@ class ParkHupuStore {
 
   private loadFromDisk(): DatabaseSchema {
     try {
-      if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      if (fs.existsSync(this.dbFile)) {
+        const raw = fs.readFileSync(this.dbFile, 'utf-8');
         const parsed = JSON.parse(raw) as DatabaseSchema;
         if (parsed && Array.isArray(parsed.users) && parsed.users.length > 0) {
           if (this.migrateJerseySeeds(parsed)) {
@@ -504,12 +510,12 @@ class ParkHupuStore {
   }
 
   private saveToDisk(data: DatabaseSchema = this.db): void {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true });
     }
-    const tmpFile = `${DB_FILE}.tmp`;
+    const tmpFile = `${this.dbFile}.tmp`;
     fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf-8');
-    fs.renameSync(tmpFile, DB_FILE);
+    fs.renameSync(tmpFile, this.dbFile);
   }
 
   public ensureDailyFreshness(now: Date = new Date()): boolean {
@@ -550,11 +556,13 @@ class ParkHupuStore {
     if (!payload) return null;
     if (this.revokedSessions.has(payload.jti)) return null;
     const user = this.db.users.find((u) => u.id === payload.uid);
-    return user ? toPublicPlayer(user) : null;
+    if (!user) return null;
+    if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) return null;
+    return toPublicPlayer(user);
   }
 
-  public createSession(userId: string): string {
-    const { token } = createSignedSessionToken(userId);
+  public createSession(userId: string, tokenVersion: number = 0): string {
+    const { token } = createSignedSessionToken(userId, undefined, undefined, undefined, tokenVersion);
     return token;
   }
 
@@ -582,26 +590,7 @@ class ParkHupuStore {
       return { ok: false, error: '账号或密码不正确' };
     }
 
-    const token = this.createSession(user.id);
-    return { ok: true, token, user: toPublicPlayer(user) };
-  }
-
-  public quickLogin(
-    identifier: string,
-  ): { ok: true; token: string; user: PublicPlayer } | { ok: false; error: string } {
-    this.ensureDailyFreshness();
-    const raw = (identifier ?? '').trim();
-    if (!raw) {
-      return { ok: false, error: '请选择要登录的球手账号' };
-    }
-    const normalizedAcc = normalizeAccount(raw);
-    const user = this.db.users.find(
-      (u) => u.id === raw || normalizeAccount(u.account) === normalizedAcc,
-    );
-    if (!user) {
-      return { ok: false, error: '未找到该注册球手' };
-    }
-    const token = this.createSession(user.id);
+    const token = this.createSession(user.id, user.tokenVersion ?? 0);
     return { ok: true, token, user: toPublicPlayer(user) };
   }
 
@@ -629,12 +618,13 @@ class ParkHupuStore {
       createdAt: new Date().toISOString(),
       passwordSalt: salt,
       passwordHash: hash,
+      tokenVersion: 0,
     };
 
     this.db.users.push(newUser);
     this.saveToDisk();
 
-    const token = this.createSession(newUser.id);
+    const token = this.createSession(newUser.id, newUser.tokenVersion ?? 0);
     return { ok: true, token, user: toPublicPlayer(newUser) };
   }
 
@@ -643,11 +633,12 @@ class ParkHupuStore {
     input: {
       nickname?: string;
       account?: string;
+      currentPassword?: string;
       password?: string;
       jerseyNumber?: string;
       avatarBg?: string;
     },
-  ): { ok: true; user: PublicPlayer } | { ok: false; error: string } {
+  ): { ok: true; user: PublicPlayer; token?: string } | { ok: false; error: string } {
     this.ensureDailyFreshness();
     const stored = this.db.users.find((u) => u.id === user.id);
     if (!stored) {
@@ -659,16 +650,28 @@ class ParkHupuStore {
       return { ok: false, error: check.error ?? '资料格式有误' };
     }
 
+    const changingPassword = input.password !== undefined && input.password.length > 0;
+    if (changingPassword) {
+      const currentPwd = String(input.currentPassword ?? '');
+      if (!currentPwd || !verifyPassword(currentPwd, stored.passwordSalt, stored.passwordHash)) {
+        return { ok: false, error: '当前密码不正确，无法修改密码' };
+      }
+    }
+
     if (input.nickname !== undefined) {
       stored.nickname = input.nickname.trim().replace(/\s+/g, ' ');
     }
     if (input.account !== undefined) {
       stored.account = normalizeAccount(input.account);
     }
-    if (input.password !== undefined && input.password.length > 0) {
+
+    let rotatedToken: string | undefined;
+    if (changingPassword && input.password) {
       const { salt, hash } = hashPassword(input.password);
       stored.passwordSalt = salt;
       stored.passwordHash = hash;
+      stored.tokenVersion = (stored.tokenVersion ?? 0) + 1;
+      rotatedToken = this.createSession(stored.id, stored.tokenVersion);
     }
     if (input.jerseyNumber !== undefined) {
       stored.jerseyNumber = formatJerseyNumber(input.jerseyNumber);
@@ -730,7 +733,7 @@ class ParkHupuStore {
     }
 
     this.saveToDisk();
-    return { ok: true, user: toPublicPlayer(stored) };
+    return { ok: true, user: toPublicPlayer(stored), token: rotatedToken };
   }
 
   public getBootstrap(currentUser: PublicPlayer | null): BootstrapResponse {

@@ -3,12 +3,14 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import {
+  LoginRateLimiter,
   buildClearSessionCookieHeader,
   buildSessionCookieHeader,
   isSameOriginOrCustomHeader,
   parseCookieValue,
 } from './server/session';
 import { store } from './server/store';
+import { normalizeAccount } from './src/shared/scoring';
 import type { PublicPlayer, RoomMode, RoomStatus, RoomTeamSlot } from './src/shared/types';
 
 interface AuthedRequest extends Request {
@@ -118,29 +120,41 @@ async function startServer() {
     res.json({ ok: true, onlineCount });
   });
 
+  const loginRateLimiter = new LoginRateLimiter();
+  setInterval(() => {
+    loginRateLimiter.prune();
+  }, 5 * 60_000).unref();
+
   // Auth routes
   router.post('/api/auth/login', (req: AuthedRequest, res: Response) => {
     const { account, password } = req.body ?? {};
-    const result = store.login(String(account ?? ''), String(password ?? ''));
-    if (!result.ok) {
-      res.status(400).json({ error: result.error });
+    const rawAccount = String(account ?? '');
+    const normalizedAcc = normalizeAccount(rawAccount);
+    const rateKey = `${req.ip || 'unknown'}:${normalizedAcc || '_'}`;
+    const limitStatus = loginRateLimiter.check(rateKey);
+    if (!limitStatus.allowed) {
+      res.status(429).json({
+        error: `登录失败次数过多，请 ${limitStatus.retryAfterSeconds} 秒后再试`,
+      });
       return;
     }
-    store.touchPresence(result.user.id, req.clientId);
-    res.setHeader(
-      'Set-Cookie',
-      buildSessionCookieHeader(result.token, { isHttps: isHttpsRequest(req) }),
-    );
-    res.json({ token: result.token, user: result.user });
-  });
 
-  router.post('/api/auth/quick-login', (req: AuthedRequest, res: Response) => {
-    const { account, playerId } = req.body ?? {};
-    const result = store.quickLogin(String(playerId ?? account ?? ''));
+    const result = store.login(rawAccount, String(password ?? ''));
     if (!result.ok) {
-      res.status(404).json({ error: result.error });
+      if (normalizedAcc && String(password ?? '')) {
+        const failure = loginRateLimiter.recordFailure(rateKey);
+        if (failure.locked) {
+          res.status(429).json({
+            error: `密码连续输错次数过多，已暂时锁定 ${Math.ceil(failure.retryAfterSeconds / 60)} 分钟`,
+          });
+          return;
+        }
+      }
+      res.status(401).json({ error: result.error });
       return;
     }
+
+    loginRateLimiter.clear(rateKey);
     store.touchPresence(result.user.id, req.clientId);
     res.setHeader(
       'Set-Cookie',
@@ -179,10 +193,11 @@ async function startServer() {
   });
 
   router.patch('/api/auth/profile', requireAuth, (req: AuthedRequest, res: Response) => {
-    const { nickname, account, password, jerseyNumber, avatarBg } = req.body ?? {};
+    const { nickname, account, currentPassword, password, jerseyNumber, avatarBg } = req.body ?? {};
     const result = store.updateProfile(req.user!, {
       nickname: typeof nickname === 'string' ? nickname : undefined,
       account: typeof account === 'string' ? account : undefined,
+      currentPassword: typeof currentPassword === 'string' ? currentPassword : undefined,
       password: typeof password === 'string' ? password : undefined,
       jerseyNumber: typeof jerseyNumber === 'string' ? jerseyNumber : undefined,
       avatarBg: typeof avatarBg === 'string' ? avatarBg : undefined,
@@ -191,7 +206,16 @@ async function startServer() {
       res.status(400).json({ error: result.error });
       return;
     }
-    res.json(store.getBootstrap(result.user));
+    const payload = store.getBootstrap(result.user);
+    if (result.token) {
+      res.setHeader(
+        'Set-Cookie',
+        buildSessionCookieHeader(result.token, { isHttps: isHttpsRequest(req) }),
+      );
+      res.json({ ...payload, token: result.token });
+      return;
+    }
+    res.json(payload);
   });
 
   // Rating & comments routes (Auth required)

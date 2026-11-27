@@ -22,7 +22,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 }) => {
   const [nickname, setNickname] = useState(currentUser.nickname);
   const [account, setAccount] = useState(currentUser.account);
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [jerseyNumber, setJerseyNumber] = useState(currentUser.jerseyNumber);
   const [avatarBg, setAvatarBg] = useState(
     currentUser.avatarBg ?? getDefaultAvatarBgHex(currentUser.nickname, currentUser.jerseyNumber),
@@ -34,7 +36,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     if (open) {
       setNickname(currentUser.nickname);
       setAccount(currentUser.account);
+      setCurrentPassword('');
       setPassword('');
+      setConfirmPassword('');
       setJerseyNumber(currentUser.jerseyNumber);
       setAvatarBg(
         currentUser.avatarBg ??
@@ -46,21 +50,40 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   if (!open) return null;
 
+  const isChangingPassword = password.length > 0;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (isChangingPassword) {
+      if (!currentPassword) {
+        setError('修改密码前请先输入当前登录密码');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('两次输入的新密码不一致，请重新确认');
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const next = await api.updateProfile({
         nickname: nickname.trim(),
         account,
-        password: password.trim() ? password : undefined,
+        currentPassword: isChangingPassword ? currentPassword : undefined,
+        password: isChangingPassword ? password : undefined,
         jerseyNumber: formatJerseyNumber(jerseyNumber),
         avatarBg,
       });
       onDataUpdate(next);
       onClose();
-      onToast('个人信息与球衣头像已更新');
+      onToast(
+        isChangingPassword
+          ? '密码已修改，其他设备的旧登录状态已自动失效'
+          : '个人信息与球衣头像已更新',
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败，请重试');
     } finally {
@@ -216,22 +239,73 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
           </div>
 
           {/* Optional Password Change */}
-          <div>
-            <label
-              htmlFor="edit-password"
-              className="block text-xs font-semibold text-[#4B5563] mb-1.5"
-            >
-              修改密码（留空则不修改）
-            </label>
-            <input
-              id="edit-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              maxLength={32}
-              placeholder="输入 4-32 位新密码"
-              className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-[#FAFBFD] text-sm text-[#141518] focus:outline-none focus:border-[#C60100] focus:bg-white"
-            />
+          <div className="space-y-3 rounded-2xl border border-[#E6E8EC] bg-[#FAFBFD] p-3.5">
+            <div>
+              <label
+                htmlFor="edit-password"
+                className="block text-xs font-semibold text-[#4B5563] mb-1.5"
+              >
+                修改密码（留空则不修改）
+              </label>
+              <input
+                id="edit-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                maxLength={32}
+                autoComplete="new-password"
+                placeholder="输入 4-32 位新密码"
+                className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-white text-sm text-[#141518] focus:outline-none focus:border-[#C60100]"
+              />
+            </div>
+
+            {isChangingPassword && (
+              <>
+                <div>
+                  <label
+                    htmlFor="edit-current-password"
+                    className="block text-xs font-semibold text-[#4B5563] mb-1.5"
+                  >
+                    当前密码（验证本人身份）
+                  </label>
+                  <input
+                    id="edit-current-password"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    maxLength={32}
+                    required
+                    autoComplete="current-password"
+                    placeholder="请输入当前登录密码"
+                    className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-white text-sm text-[#141518] focus:outline-none focus:border-[#C60100]"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="edit-confirm-password"
+                    className="block text-xs font-semibold text-[#4B5563] mb-1.5"
+                  >
+                    确认新密码
+                  </label>
+                  <input
+                    id="edit-confirm-password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    maxLength={32}
+                    required
+                    autoComplete="new-password"
+                    placeholder="再次输入新密码"
+                    className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-white text-sm text-[#141518] focus:outline-none focus:border-[#C60100]"
+                  />
+                </div>
+
+                <p className="text-[11px] text-[#6B7280] leading-relaxed">
+                  修改密码后，其他设备上的旧登录状态将立即失效。
+                </p>
+              </>
+            )}
           </div>
 
           <button

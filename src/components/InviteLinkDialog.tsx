@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Check, Clock, Link2, Swords, UserCheck, Users, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Check, Clock, Eye, EyeOff, Link2, Lock, Swords, UserCheck, Users, X } from 'lucide-react';
 import { api, setAuthToken } from '../lib/api';
 import {
   getAvailableSlotsForTeam,
@@ -13,7 +13,6 @@ import type {
   PublicPlayer,
   RoomTeamSlot,
 } from '../shared/types';
-import { PlayerAvatar } from './PlayerAvatar';
 
 interface InviteLinkDialogProps {
   inviteLink: ParsedRoomInviteLink | null;
@@ -59,8 +58,10 @@ export const InviteLinkDialog: React.FC<InviteLinkDialogProps> = ({
   onToast,
 }) => {
   const [busy, setBusy] = useState(false);
-  const [showPicker, setShowPicker] = useState(false);
-  const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const [showSwitchLogin, setShowSwitchLogin] = useState(false);
+  const [loginAccount, setLoginAccount] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const room = useMemo(() => {
@@ -85,14 +86,15 @@ export const InviteLinkDialog: React.FC<InviteLinkDialogProps> = ({
     return null;
   }, [inviteLink, matchingInvite, players]);
 
-  const sortedPlayers = useMemo(
-    () => [...players].sort((a, b) => a.account.localeCompare(b.account)),
-    [players],
-  );
+  useEffect(() => {
+    setLoginAccount(targetInvitee?.account ?? '');
+    setLoginPassword('');
+    setShowPassword(false);
+    setShowSwitchLogin(false);
+    setErrorMsg(null);
+  }, [inviteLink?.roomId, inviteLink?.inviteId, targetInvitee?.account]);
 
   if (!inviteLink) return null;
-
-  const teamLabel = TEAM_LABELS[inviteLink.team];
 
   if (!room) {
     return (
@@ -145,24 +147,13 @@ export const InviteLinkDialog: React.FC<InviteLinkDialogProps> = ({
     targetInvitee && getMemberRoomTeam(room, targetInvitee.id) === targetTeam,
   );
 
-  const acceptWithCurrentOrAccount = async (accountToLogin?: string) => {
+  const joinWithActiveSession = async () => {
+    if (!currentUser) return;
     setBusy(true);
     setErrorMsg(null);
     try {
-      let activeUser = currentUser;
-      if (accountToLogin) {
-        const res = await api.quickLogin(accountToLogin);
-        setAuthToken(res.token);
-        activeUser = res.user;
-      }
-      if (!activeUser) {
-        setErrorMsg('请先选择你的球手身份');
-        setBusy(false);
-        return;
-      }
-
       let next: BootstrapResponse;
-      if (matchingInvite && matchingInvite.inviteeId === activeUser.id) {
+      if (matchingInvite && matchingInvite.inviteeId === currentUser.id) {
         next = await api.respondToRoomInvite(room.id, matchingInvite.id, 'accept');
       } else {
         next = await api.joinRoom(room.id, targetTeam);
@@ -177,18 +168,19 @@ export const InviteLinkDialog: React.FC<InviteLinkDialogProps> = ({
     }
   };
 
-  const handleDecline = async () => {
+  const handleDeclineWithActiveSession = async () => {
     if (!matchingInvite) {
       onClose();
+      return;
+    }
+    if (!currentUser || currentUser.id !== matchingInvite.inviteeId) {
+      setErrorMsg('请先使用被邀请人本人账号密码登录后再处理邀请');
+      setShowSwitchLogin(true);
       return;
     }
     setBusy(true);
     setErrorMsg(null);
     try {
-      if (targetInvitee && currentUser?.id !== targetInvitee.id) {
-        const res = await api.quickLogin(targetInvitee.account);
-        setAuthToken(res.token);
-      }
       const next = await api.respondToRoomInvite(room.id, matchingInvite.id, 'decline');
       onDataUpdate(next);
       onToast('已婉拒该约球邀请');
@@ -200,12 +192,58 @@ export const InviteLinkDialog: React.FC<InviteLinkDialogProps> = ({
     }
   };
 
+  const handlePasswordAuthAndAct = async (action: 'join' | 'decline') => {
+    const cleanAccount = loginAccount.trim();
+    if (!cleanAccount || !loginPassword) {
+      setErrorMsg('请输入本人账号和密码');
+      return;
+    }
+
+    setBusy(true);
+    setErrorMsg(null);
+    try {
+      const res = await api.login(cleanAccount, loginPassword);
+      setAuthToken(res.token);
+      setLoginPassword('');
+
+      if (action === 'decline') {
+        if (!matchingInvite || matchingInvite.inviteeId !== res.user.id) {
+          const refreshed = await api.bootstrap();
+          onDataUpdate(refreshed);
+          setErrorMsg('已登录本人账号，但只能使用被邀请人本人账号婉拒该专属邀请');
+          return;
+        }
+        const next = await api.respondToRoomInvite(room.id, matchingInvite.id, 'decline');
+        onDataUpdate(next);
+        onToast('已婉拒该约球邀请');
+        onClose();
+        return;
+      }
+
+      let next: BootstrapResponse;
+      if (matchingInvite && matchingInvite.inviteeId === res.user.id) {
+        next = await api.respondToRoomInvite(room.id, matchingInvite.id, 'accept');
+      } else {
+        next = await api.joinRoom(room.id, targetTeam);
+      }
+      onDataUpdate(next);
+      onToast(`已以「${res.user.nickname}」加入「${room.title}」${resolvedTeamLabel}`);
+      onClose();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : '登录或操作失败，请稍后重试');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const teamColorClass =
     targetTeam === 'red'
       ? 'text-[#B91C1C]'
       : targetTeam === 'blue'
         ? 'text-[#1D4ED8]'
         : 'text-[#141518]';
+
+  const needsPasswordForm = !currentUser || showSwitchLogin;
 
   return (
     <div
@@ -269,7 +307,10 @@ export const InviteLinkDialog: React.FC<InviteLinkDialogProps> = ({
         </div>
 
         {errorMsg && (
-          <p className="mt-3 text-xs text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-3 py-2 shrink-0">
+          <p
+            role="alert"
+            className="mt-3 text-xs text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-3 py-2 shrink-0"
+          >
             {errorMsg}
           </p>
         )}
@@ -289,66 +330,27 @@ export const InviteLinkDialog: React.FC<InviteLinkDialogProps> = ({
                 去房间看看其他空位
               </button>
             </div>
-          ) : targetInvitee && !showPicker ? (
+          ) : targetInvitee && inviteeAlreadyInTarget && !showSwitchLogin ? (
             <div className="space-y-2.5">
-              {inviteeAlreadyInTarget ? (
-                <>
-                  <p className="text-xs text-[#0F766E] bg-[#F0FDFA] border border-[#99F6E4] rounded-xl px-3 py-2.5">
-                    {targetInvitee.nickname} 已经在「{room.title}」{resolvedTeamLabel}中了！
-                  </p>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="w-full h-11 rounded-xl bg-[#C60100] text-white text-sm font-semibold"
-                  >
-                    进入房间查看
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      acceptWithCurrentOrAccount(
-                        isTargetSelf ? undefined : targetInvitee.account,
-                      )
-                    }
-                    className="w-full min-h-[48px] px-4 rounded-xl bg-[#C60100] hover:bg-[#A00100] text-white text-sm font-semibold flex items-center justify-center gap-1.5 disabled:opacity-55"
-                  >
-                    <Check className="w-4 h-4 shrink-0" />
-                    <span>
-                      {busy
-                        ? '正在加入...'
-                        : isTargetSelf
-                          ? `接受邀请并加入${resolvedTeamLabel}`
-                          : `以「${targetInvitee.nickname}」身份登录并加入${resolvedTeamLabel}`}
-                    </span>
-                  </button>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={handleDecline}
-                      className="min-h-[42px] rounded-xl border border-[#DCE0E6] bg-white text-[#4B5563] text-xs font-semibold"
-                    >
-                      {matchingInvite ? '婉拒邀请' : '暂不加入'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => setShowPicker(true)}
-                      className="min-h-[42px] rounded-xl border border-[#DCE0E6] bg-white text-[#141518] text-xs font-semibold"
-                    >
-                      换其他球手加入
-                    </button>
-                  </div>
-                </>
-              )}
+              <p className="text-xs text-[#0F766E] bg-[#F0FDFA] border border-[#99F6E4] rounded-xl px-3 py-2.5">
+                {targetInvitee.nickname} 已经在「{room.title}」{resolvedTeamLabel}中了！
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full h-11 rounded-xl bg-[#C60100] text-white text-sm font-semibold"
+              >
+                进入房间查看
+              </button>
             </div>
-          ) : currentUser && !showPicker ? (
+          ) : !needsPasswordForm && currentUser ? (
             <div className="space-y-2.5">
+              {targetInvitee && !isTargetSelf && (
+                <p className="text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-xl px-3 py-2.5 leading-relaxed">
+                  该专属邀请发给「{targetInvitee.nickname}（{targetInvitee.account}）」，你当前登录的是「{currentUser.nickname}（{currentUser.account}）」。
+                </p>
+              )}
+
               {alreadyInTargetTeam ? (
                 <>
                   <p className="text-xs text-[#0F766E] bg-[#F0FDFA] border border-[#99F6E4] rounded-xl px-3 py-2.5">
@@ -367,72 +369,153 @@ export const InviteLinkDialog: React.FC<InviteLinkDialogProps> = ({
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => acceptWithCurrentOrAccount()}
+                    onClick={joinWithActiveSession}
                     className="w-full min-h-[48px] px-4 rounded-xl bg-[#C60100] hover:bg-[#A00100] text-white text-sm font-semibold flex items-center justify-center gap-1.5 disabled:opacity-55"
                   >
-                    <UserCheck className="w-4 h-4 shrink-0" />
+                    {isTargetSelf ? (
+                      <Check className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <UserCheck className="w-4 h-4 shrink-0" />
+                    )}
                     <span>
                       {busy
-                        ? '正在入队...'
-                        : `以「${currentUser.nickname}」加入${resolvedTeamLabel}`}
+                        ? '正在加入...'
+                        : isTargetSelf
+                          ? `接受邀请并加入${resolvedTeamLabel}`
+                          : `以当前账号「${currentUser.nickname}」加入${resolvedTeamLabel}`}
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={onClose}
-                    className="w-full min-h-[42px] rounded-xl border border-[#DCE0E6] bg-white text-[#4B5563] text-xs font-semibold"
-                  >
-                    先看看房间
-                  </button>
+
+                  {isTargetSelf && matchingInvite ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={handleDeclineWithActiveSession}
+                      className="w-full min-h-[42px] rounded-xl border border-[#DCE0E6] bg-white text-[#4B5563] text-xs font-semibold"
+                    >
+                      婉拒邀请
+                    </button>
+                  ) : targetInvitee && !isTargetSelf ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setLoginAccount(targetInvitee.account);
+                          setLoginPassword('');
+                          setErrorMsg(null);
+                          setShowSwitchLogin(true);
+                        }}
+                        className="min-h-[42px] rounded-xl border border-[#DCE0E6] bg-white text-[#141518] text-xs font-semibold"
+                      >
+                        切换为本人账号登录
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={onClose}
+                        className="min-h-[42px] rounded-xl border border-[#DCE0E6] bg-white text-[#4B5563] text-xs font-semibold"
+                      >
+                        先看看房间
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={onClose}
+                      className="w-full min-h-[42px] rounded-xl border border-[#DCE0E6] bg-white text-[#4B5563] text-xs font-semibold"
+                    >
+                      先看看房间
+                    </button>
+                  )}
                 </>
               )}
             </div>
           ) : (
-            <div className="space-y-3">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handlePasswordAuthAndAct('join');
+              }}
+              className="space-y-3"
+            >
               <p className="text-xs text-[#4B5563] font-medium">
-                点选你的球手身份，一键登录并加入{teamLabel}：
+                {targetInvitee
+                  ? `请验证「${targetInvitee.nickname}」本人账号与密码以处理邀请：`
+                  : `请使用本人账号与密码登录并加入${resolvedTeamLabel}：`}
               </p>
 
-              <div className="grid grid-cols-3 gap-1.5 max-h-[220px] overflow-y-auto pr-0.5">
-                {sortedPlayers.map((p) => {
-                  const selected = selectedAccount === p.account;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setSelectedAccount(p.account)}
-                      className={`p-2 rounded-xl border text-left flex items-center gap-1.5 transition-colors ${
-                        selected
-                          ? 'border-[#C60100] bg-[#FEF2F2]'
-                          : 'border-[#E6E8EC] bg-white hover:border-[#141518]'
-                      }`}
-                    >
-                      <PlayerAvatar
-                        nickname={p.nickname}
-                        jerseyNumber={p.jerseyNumber}
-                        avatarBg={p.avatarBg}
-                        size="sm"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-[#141518] truncate">
-                          {p.nickname}
-                        </p>
-                        <p className="text-[10px] text-[#9CA3AF] font-score">{p.account}</p>
-                      </div>
-                    </button>
-                  );
-                })}
+              <div>
+                <label
+                  htmlFor="invite-login-account"
+                  className="block text-xs font-medium text-[#4B5563] mb-1"
+                >
+                  球手账号
+                </label>
+                <input
+                  id="invite-login-account"
+                  type="text"
+                  value={loginAccount}
+                  onChange={(e) => setLoginAccount(e.target.value)}
+                  placeholder="输入本人账号，如 YY08"
+                  maxLength={20}
+                  required
+                  autoComplete="username"
+                  autoCapitalize="characters"
+                  className="w-full h-11 px-3.5 rounded-xl border border-[#DCE0E6] bg-[#FAFBFD] text-sm text-[#141518] focus:outline-none focus:border-[#C60100] focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="invite-login-password"
+                  className="block text-xs font-medium text-[#4B5563] mb-1"
+                >
+                  登录密码
+                </label>
+                <div className="relative">
+                  <input
+                    id="invite-login-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="请输入本人登录密码"
+                    maxLength={32}
+                    required
+                    autoComplete="current-password"
+                    className="w-full h-11 pl-3.5 pr-11 rounded-xl border border-[#DCE0E6] bg-[#FAFBFD] text-sm text-[#141518] focus:outline-none focus:border-[#C60100] focus:bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                    className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-[#6B7280] hover:text-[#141518]"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <button
-                type="button"
-                disabled={busy || !selectedAccount}
-                onClick={() => acceptWithCurrentOrAccount(selectedAccount)}
-                className="w-full min-h-[46px] rounded-xl bg-[#C60100] hover:bg-[#A00100] text-white text-sm font-semibold disabled:opacity-45"
+                type="submit"
+                disabled={busy}
+                className="w-full min-h-[46px] rounded-xl bg-[#C60100] hover:bg-[#A00100] text-white text-sm font-semibold disabled:opacity-55 flex items-center justify-center gap-1.5"
               >
-                {busy ? '正在登录并入队...' : `登录并加入${resolvedTeamLabel}`}
+                <Lock className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>{busy ? '正在验证并入队...' : `登录并加入${resolvedTeamLabel}`}</span>
               </button>
+
+              {matchingInvite && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handlePasswordAuthAndAct('decline')}
+                  className="w-full min-h-[42px] rounded-xl border border-[#DCE0E6] bg-white text-[#4B5563] text-xs font-semibold disabled:opacity-55"
+                >
+                  验证本人密码并婉拒邀请
+                </button>
+              )}
 
               <div className="flex items-center justify-between text-xs pt-0.5">
                 <button
@@ -445,15 +528,28 @@ export const InviteLinkDialog: React.FC<InviteLinkDialogProps> = ({
                 >
                   新球手？先注册账号
                 </button>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="text-[#6B7280] py-1"
-                >
-                  仅浏览房间
-                </button>
+                {currentUser && showSwitchLogin ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSwitchLogin(false);
+                      setErrorMsg(null);
+                    }}
+                    className="text-[#6B7280] py-1"
+                  >
+                    返回当前账号
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="text-[#6B7280] py-1"
+                  >
+                    仅浏览房间
+                  </button>
+                )}
               </div>
-            </div>
+            </form>
           )}
         </div>
       </div>

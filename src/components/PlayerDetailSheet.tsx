@@ -233,43 +233,45 @@ export const PlayerDetailSheet: React.FC<PlayerDetailSheetProps> = ({
       aria-modal="true"
       aria-label={`${player.nickname} 虎扑评分详情`}
     >
-      <div className="w-full max-w-[480px] h-full bg-white flex flex-col overflow-hidden">
-        {/* Compact Sticky Detail Header (48px content + iOS standalone clearance) */}
-        <header className="shrink-0 bg-white border-b border-[#F0F2F5] standalone-top-cushion">
-          <div className="h-12 px-2 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="返回球员列表"
-              className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#141518]"
-            >
-              <ChevronLeft className="w-6 h-6" />
-            </button>
+      {/* Fixed Detail Header anchored at top:0 (suppresses iOS 26/27 top blur and samples solid white) */}
+      <header className="fixed top-0 inset-x-0 mx-auto w-full max-w-[480px] z-[45] bg-white border-b border-[#F0F2F5] pt-safe">
+        <div className="h-12 px-2 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="返回球员列表"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#141518]"
+          >
+            <ChevronLeft className="w-6 h-6" />
+          </button>
 
-            <div className="flex items-center gap-2 min-w-0">
-              <PlayerAvatar
-                nickname={player.nickname}
-                jerseyNumber={player.jerseyNumber}
-                avatarBg={player.avatarBg}
-                size="xs"
-                shape="circle"
-              />
-              <span className="text-[15px] font-bold text-[#141518] truncate">
-                {player.nickname}
-              </span>
-              <span className="text-xs text-[#6B7280] font-score shrink-0">
-                #{player.jerseyNumber}
-              </span>
-            </div>
-
-            <div className="min-w-[56px] pr-2 text-right text-[11px] text-[#9CA3AF] tabular-nums shrink-0">
-              热度 {player.heatScore}
-            </div>
+          <div className="flex items-center gap-2 min-w-0">
+            <PlayerAvatar
+              nickname={player.nickname}
+              jerseyNumber={player.jerseyNumber}
+              avatarBg={player.avatarBg}
+              size="xs"
+              shape="circle"
+            />
+            <span className="text-[15px] font-bold text-[#141518] truncate">
+              {player.nickname}
+            </span>
+            <span className="text-xs text-[#6B7280] font-score shrink-0">
+              #{player.jerseyNumber}
+            </span>
           </div>
-        </header>
+
+          <div className="min-w-[56px] pr-2 text-right text-[11px] text-[#9CA3AF] tabular-nums shrink-0">
+            热度 {player.heatScore}
+          </div>
+        </div>
+      </header>
+
+      <div className="w-full max-w-[480px] h-full bg-white flex flex-col overflow-hidden">
+        <div className="header-spacer-detail shrink-0" aria-hidden="true" />
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto bg-white">
+        <div className="flex-1 overflow-y-auto bg-white scroll-pt-2">
           {/* Hupu-Style Unified Scoreboard + Instant Rating Card */}
           <section className="px-4 pt-3 pb-4 bg-white">
             <div className="rounded-2xl bg-[#F8F9FB] border border-[#ECEEF2] px-4 py-3.5">
