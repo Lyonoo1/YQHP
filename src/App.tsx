@@ -42,6 +42,11 @@ export default function App() {
   const [msLeft, setMsLeft] = useState<number>(0);
   const [emblemFailed, setEmblemFailed] = useState(false);
   const toastTimerRef = useRef<number | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [activeTab]);
 
   const dismissInviteLink = useCallback(() => {
     setPendingLinkInvite(null);
@@ -152,11 +157,11 @@ export default function App() {
   const countdownText = formatCountdown(msLeft);
 
   return (
-    <div className="min-h-dvh w-full bg-[#E9ECEF] flex justify-center">
+    <div className="h-dvh w-full bg-[#E9ECEF] flex justify-center overflow-hidden">
       {/* Mobile-First App Shell (Edge-to-Edge on all phones, clean centered phone viewport on desktop) */}
-      <div className="w-full max-w-[480px] min-h-dvh bg-[#F4F5F7] flex flex-col relative shadow-xl">
-        {/* Compact Sticky Top Bar (52px) */}
-        <header className="sticky top-0 z-30 h-[52px] bg-[#C60100] text-white px-4 flex items-center justify-between gap-4 shrink-0">
+      <div className="w-full max-w-[480px] h-full bg-[#F4F5F7] flex flex-col relative shadow-xl overflow-hidden">
+        {/* Compact Top Bar (52px) */}
+        <header className="z-30 h-[52px] bg-[#C60100] text-white px-4 flex items-center justify-between gap-4 shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('ratings')}
@@ -211,8 +216,11 @@ export default function App() {
           </div>
         </header>
 
-        {/* Main Scrollable Viewport */}
-        <main className="flex-1 pb-20">
+        {/* Main Scrollable Viewport (scrollbar strictly contained between header & bottom nav) */}
+        <main
+          ref={mainRef}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain app-scroll pb-4"
+        >
           {loading ? (
             <div className="px-4 py-12 space-y-3">
               <div className="h-32 rounded-2xl bg-[#E5E7EB] animate-pulse" />
@@ -279,10 +287,10 @@ export default function App() {
           )}
         </main>
 
-        {/* Fixed Bottom Mobile Tab Bar (56px + safe-area) */}
+        {/* Bottom Mobile Tab Bar (56px + safe-area, outside scroll container) */}
         <nav
           aria-label="主导航"
-          className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] z-30 bg-white/95 backdrop-blur-md border-t border-[#E6E8EC] pb-safe"
+          className="shrink-0 w-full z-30 bg-white/95 backdrop-blur-md border-t border-[#E6E8EC] pb-safe"
         >
           <div className="grid grid-cols-4 h-14">
             <button
