@@ -714,5 +714,37 @@ test('formatRoomInviteShareText produces Chinese description with match info, ti
   assert.ok(text.endsWith(url));
 });
 
+test('sortPlayerComments orders comments by bright (likes desc), latest, and earliest', async () => {
+  const { sortPlayerComments } = await import('./scoring');
+  const makeComment = (id: string, likes: number, createdAt: string): CommentRecord => ({
+    id,
+    playerId: 'p1',
+    authorId: 'u1',
+    authorNickname: '球手',
+    authorStars: 5,
+    content: id,
+    likedBy: Array.from({ length: likes }, (_, i) => `u${i}`),
+    replies: [],
+    createdAt,
+  });
+
+  const c1 = makeComment('old_top', 5, '2026-11-26T01:00:00Z');
+  const c2 = makeComment('mid_low', 1, '2026-11-26T02:00:00Z');
+  const c3 = makeComment('new_top', 5, '2026-11-26T03:00:00Z');
+
+  assert.deepEqual(
+    sortPlayerComments([c1, c2, c3], 'bright').map((c) => c.id),
+    ['new_top', 'old_top', 'mid_low'],
+  );
+  assert.deepEqual(
+    sortPlayerComments([c1, c2, c3], 'latest').map((c) => c.id),
+    ['new_top', 'mid_low', 'old_top'],
+  );
+  assert.deepEqual(
+    sortPlayerComments([c1, c2, c3], 'earliest').map((c) => c.id),
+    ['old_top', 'mid_low', 'new_top'],
+  );
+});
+
 
 

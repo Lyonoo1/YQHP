@@ -54,7 +54,8 @@ interface PlayerAvatarProps {
   nickname: string;
   jerseyNumber: string;
   avatarBg?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
+  shape?: 'rounded' | 'circle';
 }
 
 export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
@@ -62,18 +63,27 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
   jerseyNumber,
   avatarBg,
   size = 'md',
+  shape = 'rounded',
 }) => {
   const displayJersey = formatJerseyNumber(jerseyNumber);
   const normalizedBg = avatarBg?.trim().toUpperCase();
   const palette =
     (normalizedBg && AVATAR_BG_CLASS_MAP[normalizedBg]) ||
     DEFAULT_JERSEY_PALETTES[getPaletteIndex(nickname + displayJersey)];
+  const radius =
+    shape === 'circle'
+      ? 'rounded-full'
+      : size === 'xs' || size === 'sm'
+        ? 'rounded-lg'
+        : 'rounded-xl';
   const dims =
-    size === 'sm'
-      ? 'w-9 h-9 rounded-lg text-sm'
-      : size === 'lg'
-        ? 'w-14 h-14 rounded-xl text-2xl'
-        : 'w-11 h-11 rounded-xl text-lg';
+    size === 'xs'
+      ? `w-6 h-6 ${radius} text-[10px]`
+      : size === 'sm'
+        ? `w-9 h-9 ${radius} text-sm`
+        : size === 'lg'
+          ? `w-14 h-14 ${radius} text-2xl`
+          : `w-11 h-11 ${radius} text-lg`;
 
   const initial = nickname.trim().slice(0, 1).toUpperCase();
 
@@ -85,7 +95,7 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
       <span className="font-score font-extrabold leading-none tracking-tight">
         {displayJersey}
       </span>
-      {size !== 'sm' && (
+      {size !== 'sm' && size !== 'xs' && (
         <span className="text-[9px] leading-none opacity-80 mt-0.5 font-medium">
           {initial}
         </span>

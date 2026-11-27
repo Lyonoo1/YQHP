@@ -355,6 +355,7 @@ export default function App() {
         {selectedPlayer && data && (
           <PlayerDetailSheet
             player={selectedPlayer}
+            players={data.players}
             comments={data.commentsByPlayer[selectedPlayer.id] ?? []}
             currentUser={data.currentUser}
             onClose={() => setSelectedPlayerId(null)}

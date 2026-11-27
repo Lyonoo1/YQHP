@@ -181,3 +181,118 @@ export const InteractiveStarRating: React.FC<InteractiveStarRatingProps> = ({
     </div>
   );
 };
+
+interface HupuInlineStarRaterProps {
+  value: number | null; // null = unset, 0 to 5 in 0.5 steps (0 to 10 score)
+  onCommit: (stars: number) => void;
+  disabled?: boolean;
+  onRequireAuth?: () => void;
+}
+
+export const HupuInlineStarRater: React.FC<HupuInlineStarRaterProps> = ({
+  value,
+  onCommit,
+  disabled = false,
+  onRequireAuth,
+}) => {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+  const draftStarsRef = useRef<number | null>(null);
+  const [previewStars, setPreviewStars] = React.useState<number | null>(null);
+
+  const displayStars = previewStars !== null ? previewStars : value;
+  const displayScore = displayStars !== null ? Math.round(displayStars * 2) : null;
+
+  const calcStarsFromX = (clientX: number): number => {
+    const el = trackRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    const ratio = (clientX - rect.left) / rect.width;
+    if (ratio <= 0.04) return 0;
+    const clamped = Math.min(1, Math.max(0, ratio));
+    return Math.ceil(clamped * 10) / 2;
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    if (onRequireAuth) {
+      onRequireAuth();
+      return;
+    }
+    draggingRef.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const next = calcStarsFromX(e.clientX);
+    const resolved = next === 0.5 && value === 0.5 ? 0 : next;
+    draftStarsRef.current = resolved;
+    setPreviewStars(resolved);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled || !draggingRef.current) return;
+    const next = calcStarsFromX(e.clientX);
+    if (next !== draftStarsRef.current) {
+      draftStarsRef.current = next;
+      setPreviewStars(next);
+    }
+  };
+
+  const finishDrag = (e: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    const finalStars = draftStarsRef.current;
+    draftStarsRef.current = null;
+    setPreviewStars(null);
+    if (commit && finalStars !== null) {
+      onCommit(finalStars);
+    }
+  };
+
+  return (
+    <div
+      ref={trackRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={(e) => finishDrag(e, true)}
+      onPointerCancel={(e) => finishDrag(e, false)}
+      className={`inline-flex items-center gap-1.5 py-1 px-0.5 touch-none select-none ${
+        disabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
+      }`}
+    >
+      {[1, 2, 3, 4, 5].map((star) => {
+        const threshold = star * 2;
+        const state: 'full' | 'half' | 'empty' =
+          displayScore === null
+            ? 'empty'
+            : displayScore >= threshold
+              ? 'full'
+              : displayScore === threshold - 1
+                ? 'half'
+                : 'empty';
+        return (
+          <button
+            key={star}
+            type="button"
+            disabled={disabled}
+            aria-label={`给球员打 ${star * 2} 分`}
+            onClick={(e) => {
+              // Pointer events handle mouse/touch (with half-star precision);
+              // handle keyboard activation (detail === 0) cleanly here.
+              if (e.detail !== 0) return;
+              if (onRequireAuth) {
+                onRequireAuth();
+                return;
+              }
+              onCommit(star);
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-md transition-transform active:scale-90 focus-visible:outline-2 focus-visible:outline-[#C60100]"
+          >
+            <HalfStarIcon state={state} className="w-7 h-7" />
+          </button>
+        );
+      })}
+    </div>
+  );
+};

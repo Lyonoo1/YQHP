@@ -54,7 +54,9 @@ interface DatabaseSchema {
 
 const CURRENT_JERSEY_SEED_VERSION = 3;
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const DATA_DIR = process.env.DATA_DIR?.trim()
+  ? path.resolve(process.env.DATA_DIR.trim())
+  : path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'park-hupu-db.json');
 
 function hashPassword(password: string, salt?: string): { salt: string; hash: string } {
@@ -742,6 +744,7 @@ class ParkHupuStore {
         ...c,
         authorId: c.anonymous && c.authorId !== currentUserId ? 'anonymous' : c.authorId,
         authorNickname: c.anonymous ? ANONYMOUS_DISPLAY_NAME : c.authorNickname,
+        authorStars: c.anonymous ? null : c.authorStars,
         replies: c.replies.map((rep) => ({
           ...rep,
           authorId: rep.anonymous && rep.authorId !== currentUserId ? 'anonymous' : rep.authorId,
@@ -827,7 +830,7 @@ class ParkHupuStore {
     );
     if (existing) {
       existing.stars = stars;
-      existing.anonymous = Boolean(anonymous);
+      existing.anonymous = false;
       existing.updatedAt = nowIso;
     } else {
       this.db.ratings.push({
@@ -835,14 +838,14 @@ class ParkHupuStore {
         playerId,
         authorId: author.id,
         stars,
-        anonymous: Boolean(anonymous),
+        anonymous: false,
         updatedAt: nowIso,
       });
     }
 
-    // Update authorStars on existing comments by this author for this player today
+    // Update authorStars on existing non-anonymous comments by this author for this player today
     for (const c of this.db.comments) {
-      if (c.playerId === playerId && c.authorId === author.id) {
+      if (c.playerId === playerId && c.authorId === author.id && !c.anonymous) {
         c.authorStars = stars;
       }
     }
@@ -896,7 +899,7 @@ class ParkHupuStore {
       authorId: author.id,
       authorNickname: anonymous ? ANONYMOUS_DISPLAY_NAME : author.nickname,
       anonymous: Boolean(anonymous),
-      authorStars: authorRating ? authorRating.stars : null,
+      authorStars: anonymous ? null : authorRating ? authorRating.stars : null,
       content,
       likedBy: [],
       replies: [],

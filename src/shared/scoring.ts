@@ -390,6 +390,27 @@ export function sortLeaderboard(
   });
 }
 
+export type CommentSortMode = 'bright' | 'latest' | 'earliest';
+
+export function sortPlayerComments(
+  comments: CommentRecord[],
+  sortBy: CommentSortMode,
+): CommentRecord[] {
+  const list = [...comments];
+  if (sortBy === 'bright') {
+    return list.sort((a, b) => {
+      if (b.likedBy.length !== a.likedBy.length) {
+        return b.likedBy.length - a.likedBy.length;
+      }
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  }
+  if (sortBy === 'latest') {
+    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  return list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 export function createEmptyRoomSlots(mode: RoomMode): {
   teamSize: number;
   courtType: RoomCourtType;
