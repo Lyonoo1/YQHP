@@ -70,7 +70,7 @@ export const RatingFeedView: React.FC<RatingFeedViewProps> = ({
         <div className="absolute inset-0 px-4 py-3.5 flex flex-col justify-between text-white">
           <div className="flex items-center justify-between text-[11px] text-white/85">
             <span className="tabular-nums font-medium">{currentDate} 园区总决赛级评分</span>
-            <span className="tabular-nums">0点清零倒计时 {countdownText}</span>
+            <span className="tabular-nums">周一0点清零 {countdownText}</span>
           </div>
 
           <div className="flex items-end justify-between gap-3">

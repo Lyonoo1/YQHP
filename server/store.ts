@@ -15,7 +15,7 @@ import {
   createEmptyRoomSlots,
   formatJerseyNumber,
   getDefaultRoomScheduledAt,
-  getMsUntilShanghaiMidnight,
+  getMsUntilShanghaiMondayMidnight,
   getShanghaiDateKey,
   joinRoomSlot,
   leaveRoomWithHostTransfer,
@@ -25,7 +25,7 @@ import {
   pruneExpiredRooms,
   removeRoomInvite,
   shouldAutoStartRoom,
-  shouldResetDailyData,
+  shouldResetWeeklyData,
   validateProfileUpdateInput,
   validateRegistrationInput,
 } from '../src/shared/scoring';
@@ -515,8 +515,8 @@ class ParkHupuStore {
   public ensureDailyFreshness(now: Date = new Date()): boolean {
     let changed = false;
 
-    // 每日 0 点仅清空评分、评论、回复与点赞，不清空约球房间
-    if (shouldResetDailyData(this.db.currentDate, now)) {
+    // 每周一 0 点仅清空评分、评论、回复与点赞，不清空约球房间
+    if (shouldResetWeeklyData(this.db.currentDate, now)) {
       this.db.currentDate = getShanghaiDateKey(now);
       this.db.ratings = [];
       this.db.comments = [];
@@ -791,7 +791,7 @@ class ParkHupuStore {
 
     return {
       currentDate: this.db.currentDate,
-      msUntilReset: getMsUntilShanghaiMidnight(),
+      msUntilReset: getMsUntilShanghaiMondayMidnight(),
       onlineCount: this.getOnlineCount(),
       currentUser: latestCurrentUser ? toPublicPlayer(latestCurrentUser) : null,
       players,
@@ -934,7 +934,7 @@ class ParkHupuStore {
     this.ensureDailyFreshness();
     const comment = this.db.comments.find((c) => c.id === commentId);
     if (!comment) {
-      return { ok: false, error: '评论不存在或已于0点重置' };
+      return { ok: false, error: '评论不存在或已于周一0点重置' };
     }
 
     const idx = comment.likedBy.indexOf(author.id);
@@ -962,7 +962,7 @@ class ParkHupuStore {
     this.ensureDailyFreshness();
     const comment = this.db.comments.find((c) => c.id === commentId);
     if (!comment) {
-      return { ok: false, error: '原评论不存在或已于0点重置' };
+      return { ok: false, error: '原评论不存在或已于周一0点重置' };
     }
     const content = contentInput.trim();
     if (content.length < 1 || content.length > 200) {
@@ -1009,7 +1009,7 @@ class ParkHupuStore {
         return { ok: true, liked, count: reply.likedBy.length };
       }
     }
-    return { ok: false, error: '回复不存在或已于0点重置' };
+    return { ok: false, error: '回复不存在或已于周一0点重置' };
   }
 
   public createRoom(

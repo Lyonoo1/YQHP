@@ -245,6 +245,43 @@ export function getShanghaiDateKey(date: Date = new Date()): string {
   return formatter.format(date);
 }
 
+export function getShanghaiWeekKey(date: Date = new Date()): string {
+  const shanghaiOffsetMs = 8 * 60 * 60 * 1000;
+  const shifted = new Date(date.getTime() + shanghaiOffsetMs);
+  const daysSinceMonday = (shifted.getUTCDay() + 6) % 7;
+  const mondayStartUtcMs =
+    Date.UTC(
+      shifted.getUTCFullYear(),
+      shifted.getUTCMonth(),
+      shifted.getUTCDate() - daysSinceMonday,
+    ) - shanghaiOffsetMs;
+  return getShanghaiDateKey(new Date(mondayStartUtcMs));
+}
+
+export function getShanghaiWeekKeyFromDateKey(dateKey: string): string {
+  const parsedMs = Date.parse(`${dateKey.trim()}T12:00:00+08:00`);
+  if (!Number.isFinite(parsedMs)) return '';
+  return getShanghaiWeekKey(new Date(parsedMs));
+}
+
+export function getMsUntilShanghaiMondayMidnight(date: Date = new Date()): number {
+  const shanghaiOffsetMs = 8 * 60 * 60 * 1000;
+  const shifted = new Date(date.getTime() + shanghaiOffsetMs);
+  const daysSinceMonday = (shifted.getUTCDay() + 6) % 7;
+  const mondayStartUtcMs =
+    Date.UTC(
+      shifted.getUTCFullYear(),
+      shifted.getUTCMonth(),
+      shifted.getUTCDate() - daysSinceMonday,
+    ) - shanghaiOffsetMs;
+  const nextMondayUtcMs = mondayStartUtcMs + 7 * 24 * 60 * 60 * 1000;
+  return nextMondayUtcMs - date.getTime();
+}
+
+export function shouldResetWeeklyData(storedDateKey: string, now: Date = new Date()): boolean {
+  return getShanghaiWeekKeyFromDateKey(storedDateKey) !== getShanghaiWeekKey(now);
+}
+
 export function getMsUntilShanghaiMidnight(date: Date = new Date()): number {
   const shanghaiOffsetMs = 8 * 60 * 60 * 1000;
   const shiftedMs = date.getTime() + shanghaiOffsetMs;

@@ -17,10 +17,12 @@ const EMBLEM_URL = `${import.meta.env.BASE_URL}src/assets/images/hupu_basketball
 
 function formatCountdown(ms: number): string {
   const clamped = Math.max(0, Math.floor(ms / 1000));
-  const hours = String(Math.floor(clamped / 3600)).padStart(2, '0');
-  const mins = String(Math.floor((clamped % 3600) / 60)).padStart(2, '0');
-  const secs = String(clamped % 60).padStart(2, '0');
-  return `${hours}:${mins}:${secs}`;
+  const days = Math.floor(clamped / 86400);
+  const remAfterDays = clamped % 86400;
+  const hours = String(Math.floor(remAfterDays / 3600)).padStart(2, '0');
+  const mins = String(Math.floor((remAfterDays % 3600) / 60)).padStart(2, '0');
+  const secs = String(remAfterDays % 60).padStart(2, '0');
+  return days > 0 ? `${days}天 ${hours}:${mins}:${secs}` : `${hours}:${mins}:${secs}`;
 }
 
 export default function App() {

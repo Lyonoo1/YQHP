@@ -219,14 +219,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </>
       )}
 
-      {/* Rules & Daily 00:00 Reset Card */}
+      {/* Rules & Weekly Monday 00:00 Reset Card */}
       <section className="bg-white rounded-2xl border border-[#E6E8EC] p-4 space-y-2.5 text-xs text-[#4B5563]">
         <div className="flex items-center gap-2 font-semibold text-[#141518]">
           <Clock className="w-4 h-4 text-[#C60100]" aria-hidden="true" />
-          <span className="tabular-nums">每日 00:00 清零评分互动 · 距重置 {countdownText}</span>
+          <span className="tabular-nums">每周一 00:00 清零评分评论 · 距重置 {countdownText}</span>
         </div>
         <p className="leading-relaxed text-[#6B7280]">
-          每天零点仅清空当日的球员评分、热评回复与点赞数据；未开打或进行中的约球房间跨天保留，并在开打时间超期 2 小时后自动删除；已注册球手账号永久保留。
+          每周一零点仅清空上周的球员评分、热评回复与点赞数据；未开打或进行中的约球房间跨天保留，并在开打时间超期 2 小时后自动删除；已注册球手账号永久保留。
         </p>
         <div className="flex items-center gap-2 pt-1 text-[#6B7280]">
           <ShieldCheck className="w-4 h-4 text-[#6B7280] shrink-0" aria-hidden="true" />

@@ -746,5 +746,22 @@ test('sortPlayerComments orders comments by bright (likes desc), latest, and ear
   );
 });
 
+test('weekly Monday 00:00 Shanghai reset preserves same-week data and resets at Monday rollover', async () => {
+  const { getMsUntilShanghaiMondayMidnight, shouldResetWeeklyData } = await import('./scoring');
+
+  // 2026-11-27 is Friday (belongs to week starting Monday 2026-11-23)
+  const storedFriday = '2026-11-27';
+  const saturday = new Date('2026-11-28T10:00:00+08:00');
+  const sundayBeforeMidnight = new Date('2026-11-29T23:59:59+08:00');
+  const mondayAtMidnight = new Date('2026-11-30T00:00:00+08:00');
+
+  assert.equal(shouldResetWeeklyData(storedFriday, saturday), false);
+  assert.equal(shouldResetWeeklyData(storedFriday, sundayBeforeMidnight), false);
+  assert.equal(shouldResetWeeklyData(storedFriday, mondayAtMidnight), true);
+
+  assert.equal(getMsUntilShanghaiMondayMidnight(sundayBeforeMidnight), 1000);
+  assert.equal(getMsUntilShanghaiMondayMidnight(mondayAtMidnight), 7 * 24 * 60 * 60 * 1000);
+});
+
 
 
